@@ -34,6 +34,62 @@ class MarkdownTheme extends InheritedTheme {
   }
 }
 
+enum MarkdownThemeForeground {
+  light,
+  dark,
+}
+
+enum MarkdownThemeDensity {
+  comfortable,
+  tight,
+}
+
+@immutable
+class _MarkdownThemePalette {
+  const _MarkdownThemePalette({
+    required this.foreground,
+    required this.secondaryForeground,
+    required this.headingForeground,
+    required this.linkForeground,
+    required this.quoteBackgroundColor,
+    required this.quoteBorderColor,
+    required this.inlineCodeBackgroundColor,
+    required this.codeBlockBackgroundColor,
+    required this.tableHeaderBackgroundColor,
+    required this.tableRowBackgroundColor,
+    required this.imagePlaceholderBackgroundColor,
+    required this.selectionColor,
+    required this.dividerColor,
+    required this.tableBorderColor,
+  });
+
+  final Color foreground;
+  final Color secondaryForeground;
+  final Color headingForeground;
+  final Color linkForeground;
+  final Color quoteBackgroundColor;
+  final Color quoteBorderColor;
+  final Color inlineCodeBackgroundColor;
+  final Color codeBlockBackgroundColor;
+  final Color tableHeaderBackgroundColor;
+  final Color tableRowBackgroundColor;
+  final Color imagePlaceholderBackgroundColor;
+  final Color selectionColor;
+  final Color dividerColor;
+  final Color tableBorderColor;
+}
+
+@immutable
+class _MarkdownThemeScheme {
+  const _MarkdownThemeScheme({
+    required this.colorScheme,
+    required this.palette,
+  });
+
+  final ColorScheme colorScheme;
+  final _MarkdownThemePalette palette;
+}
+
 @immutable
 class MarkdownThemeData extends ThemeExtension<MarkdownThemeData>
     with DiagnosticableTreeMixin {
@@ -81,15 +137,184 @@ class MarkdownThemeData extends ThemeExtension<MarkdownThemeData>
     required this.codeHighlightMaxLines,
   });
 
-  factory MarkdownThemeData.fallback(BuildContext context) {
+  factory MarkdownThemeData.fallback(
+    BuildContext context, {
+    double maxContentWidth = 920,
+  }) {
+    return MarkdownThemeData.themed(
+      context,
+      maxContentWidth: maxContentWidth,
+    );
+  }
+
+  factory MarkdownThemeData.tight(
+    BuildContext context, {
+    MarkdownThemeForeground foreground = MarkdownThemeForeground.light,
+    double maxContentWidth = 920,
+  }) {
+    return MarkdownThemeData.themed(
+      context,
+      foreground: foreground,
+      density: MarkdownThemeDensity.tight,
+      maxContentWidth: maxContentWidth,
+    );
+  }
+
+  factory MarkdownThemeData.night(
+    BuildContext context, {
+    MarkdownThemeDensity density = MarkdownThemeDensity.comfortable,
+    double maxContentWidth = 920,
+  }) {
+    return MarkdownThemeData.themed(
+      context,
+      foreground: MarkdownThemeForeground.dark,
+      density: density,
+      maxContentWidth: maxContentWidth,
+    );
+  }
+
+  factory MarkdownThemeData.themed(
+    BuildContext context, {
+    MarkdownThemeForeground foreground = MarkdownThemeForeground.light,
+    MarkdownThemeDensity density = MarkdownThemeDensity.comfortable,
+    double maxContentWidth = 920,
+  }) {
+    final scheme = MarkdownThemeData._schemeForForeground(context, foreground);
+    final comfortableTheme = MarkdownThemeData._fromScheme(
+      context,
+      colorScheme: scheme.colorScheme,
+      palette: scheme.palette,
+      maxContentWidth: maxContentWidth,
+    );
+    return switch (density) {
+      MarkdownThemeDensity.comfortable => comfortableTheme,
+      MarkdownThemeDensity.tight =>
+        MarkdownThemeData._applyTightDensity(comfortableTheme),
+    };
+  }
+
+  static _MarkdownThemeScheme _schemeForForeground(
+    BuildContext context,
+    MarkdownThemeForeground foreground,
+  ) {
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
+    return switch (foreground) {
+      MarkdownThemeForeground.light => _lightScheme(theme),
+      MarkdownThemeForeground.dark => _darkScheme(theme),
+    };
+  }
+
+  static _MarkdownThemeScheme _lightScheme(ThemeData theme) {
     final colorScheme = theme.colorScheme;
     final borderColor =
         Color.lerp(colorScheme.outline, colorScheme.onSurface, 0.24) ??
             colorScheme.outline;
+    return _MarkdownThemeScheme(
+      colorScheme: colorScheme,
+      palette: _MarkdownThemePalette(
+        foreground: colorScheme.onSurface,
+        secondaryForeground: colorScheme.onSurface.withValues(alpha: 0.82),
+        headingForeground: colorScheme.onSurface,
+        linkForeground: colorScheme.primary,
+        quoteBackgroundColor: MarkdownThemeData._tintedOverlay(
+          colorScheme.onSurface,
+          colorScheme.primary,
+          mix: 0.72,
+          alpha: 0.08,
+        ),
+        quoteBorderColor: colorScheme.primary.withValues(alpha: 0.4),
+        inlineCodeBackgroundColor: MarkdownThemeData._tintedOverlay(
+          colorScheme.onSurface,
+          colorScheme.primary,
+          mix: 0.18,
+          alpha: 0.1,
+        ),
+        codeBlockBackgroundColor: MarkdownThemeData._tintedOverlay(
+          colorScheme.onSurface,
+          colorScheme.primary,
+          mix: 0.12,
+          alpha: 0.12,
+        ),
+        tableHeaderBackgroundColor: colorScheme.primary.withValues(alpha: 0.11),
+        tableRowBackgroundColor: colorScheme.onSurface.withValues(alpha: 0.028),
+        imagePlaceholderBackgroundColor: MarkdownThemeData._tintedOverlay(
+          colorScheme.onSurface,
+          colorScheme.primary,
+          mix: 0.1,
+          alpha: 0.06,
+        ),
+        selectionColor: colorScheme.primary.withValues(alpha: 0.24),
+        dividerColor: borderColor,
+        tableBorderColor: borderColor,
+      ),
+    );
+  }
+
+  static _MarkdownThemeScheme _darkScheme(ThemeData theme) {
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: theme.colorScheme.primary,
+      brightness: Brightness.dark,
+    );
+    const deepSurface = Color(0xFF0E151D);
+    const raisedSurface = Color(0xFF16212C);
+    const mutedSurface = Color(0xFF223142);
+    const foreground = Color(0xFFE7EDF4);
+    const secondaryForeground = Color(0xFFB7C4D3);
+    const headingForeground = Color(0xFFF8FBFF);
+    const linkForeground = Color(0xFF7CCBFF);
+    final borderColor = Color.lerp(colorScheme.outline, foreground, 0.12) ??
+        colorScheme.outline;
+    return _MarkdownThemeScheme(
+      colorScheme: colorScheme,
+      palette: _MarkdownThemePalette(
+        foreground: foreground,
+        secondaryForeground: secondaryForeground,
+        headingForeground: headingForeground,
+        linkForeground: linkForeground,
+        quoteBackgroundColor: MarkdownThemeData._tintedOverlay(
+          raisedSurface,
+          linkForeground,
+          mix: 0.18,
+          alpha: 0.82,
+        ),
+        quoteBorderColor: const Color(0xFF4CA7D8),
+        inlineCodeBackgroundColor: MarkdownThemeData._tintedOverlay(
+          mutedSurface,
+          linkForeground,
+          mix: 0.12,
+          alpha: 0.84,
+        ),
+        codeBlockBackgroundColor: MarkdownThemeData._tintedOverlay(
+          deepSurface,
+          linkForeground,
+          mix: 0.1,
+          alpha: 0.88,
+        ),
+        tableHeaderBackgroundColor: MarkdownThemeData._tintedOverlay(
+          raisedSurface,
+          linkForeground,
+          mix: 0.22,
+          alpha: 0.86,
+        ),
+        tableRowBackgroundColor: deepSurface.withValues(alpha: 0.74),
+        imagePlaceholderBackgroundColor: raisedSurface.withValues(alpha: 0.8),
+        selectionColor: const Color(0x664CA7D8),
+        dividerColor: borderColor,
+        tableBorderColor: borderColor,
+      ),
+    );
+  }
+
+  factory MarkdownThemeData._fromScheme(
+    BuildContext context, {
+    required ColorScheme colorScheme,
+    required _MarkdownThemePalette palette,
+    required double maxContentWidth,
+  }) {
+    final textTheme = Theme.of(context).textTheme;
     final bodyStyle = (textTheme.bodyMedium ?? const TextStyle()).copyWith(
       fontSize: 16,
+      color: palette.foreground,
     );
     final mono = bodyStyle.copyWith(
       fontFamily: 'Mono',
@@ -109,7 +334,7 @@ class MarkdownThemeData extends ThemeExtension<MarkdownThemeData>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       blockSpacing: 14,
       listItemSpacing: 3,
-      maxContentWidth: 920,
+      maxContentWidth: maxContentWidth,
       quotePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       inlineCodePadding:
           const EdgeInsets.symmetric(horizontal: 5, vertical: 0.5),
@@ -125,148 +350,135 @@ class MarkdownThemeData extends ThemeExtension<MarkdownThemeData>
       codeBlockToolbarPadding: const EdgeInsets.fromLTRB(12, 8, 8, 0),
       bodyStyle: bodyStyle,
       quoteStyle: bodyStyle.copyWith(
-        color: colorScheme.onSurface.withValues(alpha: 0.82),
+        color: palette.secondaryForeground,
         fontStyle: FontStyle.italic,
       ),
       linkStyle: bodyStyle.copyWith(
-        color: colorScheme.primary,
+        color: palette.linkForeground,
         decoration: TextDecoration.underline,
-        decorationColor: colorScheme.primary,
+        decorationColor: palette.linkForeground,
       ),
       inlineCodeStyle: mono,
-      codeBlockStyle: mono.copyWith(
-        color: colorScheme.onSurface,
+      codeBlockStyle: mono.copyWith(color: palette.foreground),
+      tableHeaderStyle: bodyStyle.copyWith(
+        fontWeight: FontWeight.w700,
+        color: palette.headingForeground,
       ),
-      tableHeaderStyle: bodyStyle.copyWith(fontWeight: FontWeight.w700),
-      heading1Style:
-          textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700) ??
-              bodyStyle.copyWith(fontSize: 34, fontWeight: FontWeight.w700),
-      heading2Style:
-          textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700) ??
-              bodyStyle.copyWith(fontSize: 28, fontWeight: FontWeight.w700),
-      heading3Style:
-          textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700) ??
-              bodyStyle.copyWith(fontSize: 24, fontWeight: FontWeight.w700),
-      heading4Style:
-          textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700) ??
-              bodyStyle.copyWith(fontSize: 21, fontWeight: FontWeight.w700),
-      heading5Style:
-          textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700) ??
-              bodyStyle.copyWith(fontSize: 18, fontWeight: FontWeight.w700),
-      heading6Style:
-          textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700) ??
-              bodyStyle.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
-      quoteBackgroundColor: colorScheme.surface.withValues(alpha: 0.7),
-      quoteBorderColor: colorScheme.primary.withValues(alpha: 0.4),
-      inlineCodeBackgroundColor:
-          Color.lerp(colorScheme.surface, colorScheme.onSurface, 0.06) ??
-              colorScheme.surface,
-      codeBlockBackgroundColor: colorScheme.surface.withValues(alpha: 0.92),
-      dividerColor: borderColor,
-      tableBorderColor: borderColor,
-      tableHeaderBackgroundColor: colorScheme.primary.withValues(alpha: 0.08),
-      tableRowBackgroundColor: colorScheme.surface,
-      selectionColor: colorScheme.primary.withValues(alpha: 0.24),
+      heading1Style: textTheme.displaySmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: palette.headingForeground,
+          ) ??
+          bodyStyle.copyWith(
+            fontSize: 34,
+            fontWeight: FontWeight.w700,
+            color: palette.headingForeground,
+          ),
+      heading2Style: textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: palette.headingForeground,
+          ) ??
+          bodyStyle.copyWith(
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+            color: palette.headingForeground,
+          ),
+      heading3Style: textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: palette.headingForeground,
+          ) ??
+          bodyStyle.copyWith(
+            fontSize: 24,
+            fontWeight: FontWeight.w700,
+            color: palette.headingForeground,
+          ),
+      heading4Style: textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: palette.headingForeground,
+          ) ??
+          bodyStyle.copyWith(
+            fontSize: 21,
+            fontWeight: FontWeight.w700,
+            color: palette.headingForeground,
+          ),
+      heading5Style: textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: palette.headingForeground,
+          ) ??
+          bodyStyle.copyWith(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: palette.headingForeground,
+          ),
+      heading6Style: textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: palette.headingForeground,
+          ) ??
+          bodyStyle.copyWith(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: palette.headingForeground,
+          ),
+      quoteBackgroundColor: palette.quoteBackgroundColor,
+      quoteBorderColor: palette.quoteBorderColor,
+      inlineCodeBackgroundColor: palette.inlineCodeBackgroundColor,
+      codeBlockBackgroundColor: palette.codeBlockBackgroundColor,
+      dividerColor: palette.dividerColor,
+      tableBorderColor: palette.tableBorderColor,
+      tableHeaderBackgroundColor: palette.tableHeaderBackgroundColor,
+      tableRowBackgroundColor: palette.tableRowBackgroundColor,
+      selectionColor: palette.selectionColor,
       quoteBorderWidth: 4,
-      imagePlaceholderBackgroundColor:
-          colorScheme.surface.withValues(alpha: 0.92),
+      imagePlaceholderBackgroundColor: palette.imagePlaceholderBackgroundColor,
       showHeading1Divider: true,
       showHeading2Divider: true,
       codeHighlightMaxLines: 120,
     );
   }
 
-  factory MarkdownThemeData.tight(BuildContext context) {
-    final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
-    final colorScheme = theme.colorScheme;
-    final borderColor =
-        Color.lerp(colorScheme.outline, colorScheme.onSurface, 0.24) ??
-            colorScheme.outline;
-    final bodyStyle =
-        (textTheme.bodyMedium ?? const TextStyle()).copyWith(fontSize: 14);
-    final mono = bodyStyle.copyWith(
-      fontFamily: 'Mono',
-      fontFamilyFallback: const <String>[
-        'SF Mono',
-        'Roboto Mono',
-        'Menlo',
-        'Monaco',
-        'Consolas',
-        'Liberation Mono',
-        'Courier New',
-        'monospace',
-      ],
-      fontSize: 13,
-    );
-    return MarkdownThemeData(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      blockSpacing: 8,
-      listItemSpacing: 2,
-      maxContentWidth: 920,
-      quotePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+  static MarkdownThemeData _applyTightDensity(MarkdownThemeData baseTheme) {
+    final bodySize = baseTheme.bodyStyle.fontSize ?? 16;
+    final codeSize = (bodySize - 1).clamp(14.0, bodySize).toDouble();
+    return baseTheme.copyWith(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      blockSpacing: 9,
+      listItemSpacing: 1.5,
+      quotePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       inlineCodePadding:
           const EdgeInsets.symmetric(horizontal: 4, vertical: 0.5),
-      codeBlockPadding: const EdgeInsets.all(12),
-      tableCellPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      inlineCodeBorderRadius: BorderRadius.circular(4),
-      codeBlockBorderRadius: BorderRadius.circular(2),
-      imageBorderRadius: BorderRadius.circular(6),
-      quoteBorderRadius: BorderRadius.circular(4),
-      tableBorderRadius: BorderRadius.circular(4),
-      imageCaptionSpacing: 4,
-      codeBlockToolbarPadding: const EdgeInsets.fromLTRB(12, 6, 6, 0),
-      bodyStyle: bodyStyle,
-      quoteStyle: bodyStyle.copyWith(
-        color: colorScheme.onSurface.withValues(alpha: 0.82),
-        fontStyle: FontStyle.italic,
-      ),
-      linkStyle: bodyStyle.copyWith(
-        color: colorScheme.primary,
-        decoration: TextDecoration.underline,
-        decorationColor: colorScheme.primary,
-      ),
-      inlineCodeStyle: mono.copyWith(),
-      codeBlockStyle: mono.copyWith(
-        color: colorScheme.onSurface,
-      ),
-      tableHeaderStyle: bodyStyle.copyWith(fontWeight: FontWeight.w700),
+      codeBlockPadding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      tableCellPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      inlineCodeBorderRadius: BorderRadius.circular(5),
+      codeBlockBorderRadius: BorderRadius.circular(4),
+      tableBorderRadius: BorderRadius.circular(5),
+      imageCaptionSpacing: 6,
+      codeBlockToolbarPadding: const EdgeInsets.fromLTRB(10, 6, 8, 0),
+      quoteStyle: baseTheme.quoteStyle.copyWith(fontSize: bodySize),
+      linkStyle: baseTheme.linkStyle.copyWith(fontSize: bodySize),
+      inlineCodeStyle: baseTheme.inlineCodeStyle.copyWith(fontSize: codeSize),
+      codeBlockStyle: baseTheme.codeBlockStyle.copyWith(fontSize: codeSize),
+      tableHeaderStyle: baseTheme.tableHeaderStyle.copyWith(fontSize: bodySize),
       heading1Style:
-          textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700) ??
-              bodyStyle.copyWith(fontSize: 28, fontWeight: FontWeight.w700),
+          baseTheme.heading1Style.copyWith(fontSize: 30, height: 1.2),
       heading2Style:
-          textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700) ??
-              bodyStyle.copyWith(fontSize: 22, fontWeight: FontWeight.w700),
+          baseTheme.heading2Style.copyWith(fontSize: 25, height: 1.22),
       heading3Style:
-          textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700) ??
-              bodyStyle.copyWith(fontSize: 18, fontWeight: FontWeight.w700),
+          baseTheme.heading3Style.copyWith(fontSize: 21, height: 1.24),
       heading4Style:
-          textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700) ??
-              bodyStyle.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
+          baseTheme.heading4Style.copyWith(fontSize: 18.5, height: 1.26),
       heading5Style:
-          textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700) ??
-              bodyStyle.copyWith(fontSize: 14, fontWeight: FontWeight.w700),
+          baseTheme.heading5Style.copyWith(fontSize: 17, height: 1.28),
       heading6Style:
-          textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700) ??
-              bodyStyle.copyWith(fontSize: 13, fontWeight: FontWeight.w700),
-      quoteBackgroundColor: colorScheme.surface.withValues(alpha: 0.7),
-      quoteBorderColor: colorScheme.primary.withValues(alpha: 0.4),
-      inlineCodeBackgroundColor:
-          Color.lerp(colorScheme.surface, colorScheme.onSurface, 0.06) ??
-              colorScheme.surface,
-      codeBlockBackgroundColor: colorScheme.surface.withValues(alpha: 0.92),
-      dividerColor: borderColor,
-      tableBorderColor: borderColor,
-      tableHeaderBackgroundColor: colorScheme.primary.withValues(alpha: 0.08),
-      tableRowBackgroundColor: colorScheme.surface,
-      selectionColor: colorScheme.primary.withValues(alpha: 0.24),
-      quoteBorderWidth: 4,
-      imagePlaceholderBackgroundColor:
-          colorScheme.surface.withValues(alpha: 0.92),
-      showHeading1Divider: true,
-      showHeading2Divider: true,
-      codeHighlightMaxLines: 120,
+          baseTheme.heading6Style.copyWith(fontSize: 16, height: 1.3),
     );
+  }
+
+  static Color _tintedOverlay(
+    Color base,
+    Color tint, {
+    required double mix,
+    required double alpha,
+  }) {
+    return (Color.lerp(base, tint, mix) ?? tint).withValues(alpha: alpha);
   }
 
   final EdgeInsetsGeometry padding;

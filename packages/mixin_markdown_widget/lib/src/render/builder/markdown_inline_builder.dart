@@ -60,8 +60,7 @@ class MarkdownInlineBuilder {
         );
       case MarkdownInlineKind.strikethrough:
         final strike = inline as StrikethroughInline;
-        final style =
-            baseStyle.copyWith(decoration: TextDecoration.lineThrough);
+        final style = strikethroughStyle(baseStyle);
         return buildPretextRuns(
           style,
           strike.children,
@@ -206,11 +205,12 @@ class MarkdownInlineBuilder {
         ];
       case MarkdownInlineKind.strikethrough:
         final strike = inline as StrikethroughInline;
+        final style = strikethroughStyle(baseStyle);
         return <InlineSpan>[
           TextSpan(
-            style: baseStyle.copyWith(decoration: TextDecoration.lineThrough),
+            style: style,
             children: buildInlineSpans(
-              baseStyle.copyWith(decoration: TextDecoration.lineThrough),
+              style,
               strike.children,
             ),
           ),
@@ -330,6 +330,14 @@ class MarkdownInlineBuilder {
     return baseStyle.copyWith(
       fontSize: baseFontSize * 0.82,
       fontFeatures: const <FontFeature>[FontFeature.superscripts()],
+    );
+  }
+
+  TextStyle strikethroughStyle(TextStyle baseStyle) {
+    final foregroundColor = baseStyle.foreground?.color ?? baseStyle.color;
+    return baseStyle.copyWith(
+      decoration: TextDecoration.lineThrough,
+      decorationColor: foregroundColor ?? baseStyle.decorationColor,
     );
   }
 

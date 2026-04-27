@@ -1654,14 +1654,14 @@ final settleResult = 42;
     });
     final decoration = codeBlockBox.decoration as BoxDecoration;
     expect(decoration.border, isNull);
-    expect(decoration.color, theme.inlineCodeBackgroundColor);
+    expect(decoration.color, theme.codeBlockBackgroundColor);
 
     final codeBlockFinder = find.byWidgetPredicate(
       (widget) =>
           widget is DecoratedBox &&
           widget.decoration is BoxDecoration &&
           (widget.decoration as BoxDecoration).color ==
-              theme.inlineCodeBackgroundColor &&
+              theme.codeBlockBackgroundColor &&
           (widget.decoration as BoxDecoration).border == null,
     );
     expect(codeBlockFinder, findsOneWidget);
@@ -1928,6 +1928,89 @@ return value;
     expect(presentation.isHighlighted, isTrue);
   });
 
+  testWidgets('code blocks refresh their theme styles after a theme switch', (
+    tester,
+  ) async {
+    const input = '''
+```dart
+const value = 42;
+return value;
+```
+''';
+
+    late MarkdownThemeData fallbackTheme;
+    late MarkdownThemeData nightTheme;
+    late StateSetter setState;
+    MarkdownThemeData? currentTheme;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, stateSetter) {
+            setState = stateSetter;
+            fallbackTheme = MarkdownThemeData.fallback(context);
+            nightTheme = MarkdownThemeData.night(context);
+            currentTheme ??= fallbackTheme;
+            return Scaffold(
+              body: MarkdownWidget(
+                data: input,
+                theme: currentTheme,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    final richTextFinder = find.byWidgetPredicate(
+      (widget) =>
+          widget is RichText &&
+          widget.text.toPlainText().contains('const value = 42;'),
+    );
+    expect(richTextFinder, findsOneWidget);
+
+    Finder codeBlockFinderFor(Color color) {
+      return find.byWidgetPredicate(
+        (widget) =>
+            widget is DecoratedBox &&
+            widget.decoration is BoxDecoration &&
+            (widget.decoration as BoxDecoration).color == color &&
+            (widget.decoration as BoxDecoration).border == null,
+      );
+    }
+
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      codeBlockFinderFor(fallbackTheme.codeBlockBackgroundColor),
+      findsOneWidget,
+    );
+    var richText = tester.widget<RichText>(richTextFinder);
+    var rootSpan = richText.text as TextSpan;
+    expect(rootSpan.style?.color, fallbackTheme.codeBlockStyle.color);
+
+    setState(() {
+      currentTheme = nightTheme;
+    });
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      codeBlockFinderFor(fallbackTheme.codeBlockBackgroundColor),
+      findsNothing,
+    );
+    expect(
+      codeBlockFinderFor(nightTheme.codeBlockBackgroundColor),
+      findsOneWidget,
+    );
+
+    richText = tester.widget<RichText>(richTextFinder);
+    rootSpan = richText.text as TextSpan;
+    expect(rootSpan.style?.color, nightTheme.codeBlockStyle.color);
+  });
+
   testWidgets(
       'long code blocks can degrade to plain text above the configured line limit',
       (tester) async {
@@ -1966,6 +2049,73 @@ final c = a + b;
     final richText = tester.widget<RichText>(richTextFinder);
     final rootSpan = richText.text as TextSpan;
     expect(_countStyledDescendantSpans(rootSpan, rootSpan.style), 0);
+  });
+
+  testWidgets('tight theme keeps normal text sizing while reducing spacing', (
+    tester,
+  ) async {
+    late MarkdownThemeData fallbackTheme;
+    late MarkdownThemeData tightTheme;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            fallbackTheme = MarkdownThemeData.fallback(context);
+            tightTheme = MarkdownThemeData.tight(context);
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    expect(tightTheme.bodyStyle.fontSize, fallbackTheme.bodyStyle.fontSize);
+    expect(tightTheme.blockSpacing, lessThan(fallbackTheme.blockSpacing));
+    expect(tightTheme.listItemSpacing, lessThan(fallbackTheme.listItemSpacing));
+    expect(
+      (tightTheme.padding as EdgeInsets).vertical,
+      lessThan((fallbackTheme.padding as EdgeInsets).vertical),
+    );
+    expect(
+      tightTheme.heading1Style.fontSize,
+      lessThan(fallbackTheme.heading1Style.fontSize!),
+    );
+    expect(tightTheme.heading1Style.fontSize, greaterThan(28));
+  });
+
+  testWidgets('night theme uses dark surfaces with readable contrast', (
+    tester,
+  ) async {
+    late MarkdownThemeData nightTheme;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            nightTheme = MarkdownThemeData.night(context);
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    expect(nightTheme.bodyStyle.color, isNotNull);
+    expect(
+      nightTheme.bodyStyle.color!.computeLuminance(),
+      greaterThan(0.75),
+    );
+    expect(
+      nightTheme.tableRowBackgroundColor.computeLuminance(),
+      lessThan(0.02),
+    );
+    expect(
+      nightTheme.codeBlockBackgroundColor.computeLuminance(),
+      lessThan(0.02),
+    );
+    expect(
+      nightTheme.linkStyle.color!.computeLuminance(),
+      greaterThan(nightTheme.tableRowBackgroundColor.computeLuminance()),
+    );
   });
 
   testWidgets('renders inline code with rounded background and padding', (

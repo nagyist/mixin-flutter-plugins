@@ -71,6 +71,7 @@ class MarkdownBlockBuilder {
   }) {
     final buildStopwatch = Stopwatch()..start();
     final cacheable = _canCacheBlockRow(block);
+    final themeSignature = theme.hashCode;
     final selectionSignature = _selectionSignatureForBlock(
       block: block,
       blockIndex: blockIndex,
@@ -82,6 +83,7 @@ class MarkdownBlockBuilder {
       if (cached != null &&
           identical(cached.block, block) &&
           cached.blockIndex == blockIndex &&
+          cached.themeSignature == themeSignature &&
           cached.selectionSignature == selectionSignature) {
         return cached.widget;
       }
@@ -127,6 +129,7 @@ class MarkdownBlockBuilder {
     _cachedBlockRows[block.id] = CachedBlockRow(
       block: block,
       blockIndex: blockIndex,
+      themeSignature: themeSignature,
       selectionSignature: selectionSignature,
       widget: widget,
     );
@@ -1967,12 +1970,14 @@ class CachedBlockRow {
   const CachedBlockRow({
     required this.block,
     required this.blockIndex,
+    required this.themeSignature,
     required this.selectionSignature,
     required this.widget,
   });
 
   final BlockNode block;
   final int blockIndex;
+  final int themeSignature;
   final String selectionSignature;
   final Widget widget;
 }

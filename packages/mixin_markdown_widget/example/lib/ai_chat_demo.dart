@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -37,6 +36,16 @@ class _AIChatDemoPageState extends State<AIChatDemoPage> {
         isUser: false,
       ));
     }
+  }
+
+  @override
+  void dispose() {
+    for (final message in _messages) {
+      message.dispose();
+    }
+    _textController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   final List<String> _presetMarkdown = [
@@ -374,11 +383,7 @@ Additionally, we support `<kbd>Ctrl</kbd> + <kbd>C</kbd>` and `<u>underlined</u>
     final responseMarkdown =
         _presetMarkdown[random.nextInt(_presetMarkdown.length)];
 
-    final streamController = StreamController<String>();
-    final aiMessage = ChatMessage.streaming(
-      isUser: false,
-      contentStream: streamController.stream,
-    );
+    final aiMessage = ChatMessage.streaming(isUser: false);
     setState(() {
       _messages.add(aiMessage);
     });
@@ -391,12 +396,12 @@ Additionally, we support `<kbd>Ctrl</kbd> + <kbd>C</kbd>` and `<u>underlined</u>
       if (!mounted) break;
       final chunkSize = random.nextInt(8) + 3;
       final end = min(offset + chunkSize, responseMarkdown.length);
-      streamController.add(responseMarkdown.substring(offset, end));
+      aiMessage.appendChunk(responseMarkdown.substring(offset, end));
       offset = end;
       _scrollToBottom();
     }
 
-    await streamController.close();
+    aiMessage.commitStream();
     if (mounted) {
       setState(() {
         _isTyping = false;
@@ -480,17 +485,30 @@ class ChatMessage {
   /// Creates a message whose full text is known up front (user messages and
   /// pre-populated AI messages).
   ChatMessage.static({required this.text, required this.isUser})
-      : contentStream = null;
+      : markdownController = null;
 
   /// Creates an AI message that will be populated incrementally via a stream.
-  ChatMessage.streaming({required this.isUser, required this.contentStream})
-      : text = '';
+  ChatMessage.streaming({required this.isUser})
+      : text = '',
+        markdownController = MarkdownController();
 
   final String text;
   final bool isUser;
 
-  /// Emits successive text chunks for streaming AI responses; null otherwise.
-  final Stream<String>? contentStream;
+  /// Owns the incremental markdown state for streaming AI responses.
+  final MarkdownController? markdownController;
+
+  void appendChunk(String chunk) {
+    markdownController?.appendChunk(chunk);
+  }
+
+  void commitStream() {
+    markdownController?.commitStream();
+  }
+
+  void dispose() {
+    markdownController?.dispose();
+  }
 }
 
 class _MessageTile extends StatefulWidget {
@@ -504,29 +522,17 @@ class _MessageTile extends StatefulWidget {
 
 class _MessageTileState extends State<_MessageTile> {
   final MarkdownController _controller = MarkdownController();
-  StreamSubscription<String>? _streamSub;
 
   @override
   void initState() {
     super.initState();
-    if (!widget.message.isUser) {
-      final stream = widget.message.contentStream;
-      if (stream != null) {
-        // Streaming AI message: subscribe and feed chunks incrementally.
-        _streamSub = stream.listen(
-          (chunk) => _controller.appendChunk(chunk),
-          onDone: () => _controller.commitStream(),
-        );
-      } else {
-        // Pre-populated static message: load all at once.
-        _controller.setData(widget.message.text);
-      }
+    if (!widget.message.isUser && widget.message.markdownController == null) {
+      _controller.setData(widget.message.text);
     }
   }
 
   @override
   void dispose() {
-    _streamSub?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -534,19 +540,10 @@ class _MessageTileState extends State<_MessageTile> {
   @override
   void didUpdateWidget(covariant _MessageTile oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.message != widget.message && !widget.message.isUser) {
-      _streamSub?.cancel();
-      _streamSub = null;
-      final stream = widget.message.contentStream;
-      if (stream != null) {
-        _controller.clear();
-        _streamSub = stream.listen(
-          (chunk) => _controller.appendChunk(chunk),
-          onDone: () => _controller.commitStream(),
-        );
-      } else {
-        _controller.setData(widget.message.text);
-      }
+    if (oldWidget.message != widget.message &&
+        !widget.message.isUser &&
+        widget.message.markdownController == null) {
+      _controller.setData(widget.message.text);
     }
   }
 
@@ -592,7 +589,8 @@ class _MessageTileState extends State<_MessageTile> {
                   ? Text(widget.message.text,
                       style: const TextStyle(fontWeight: FontWeight.w500))
                   : MarkdownWidget(
-                      controller: _controller,
+                      controller:
+                          widget.message.markdownController ?? _controller,
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       theme: MarkdownThemeData.fallback(context).copyWith(

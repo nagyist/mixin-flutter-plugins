@@ -3,16 +3,34 @@ import 'package:mixin_markdown_widget/mixin_markdown_widget.dart';
 
 import 'ai_chat_demo.dart';
 
-enum _DemoThemePreset {
-  ocean,
-  warm,
-  tight,
-}
-
 enum _DemoLayoutMode {
   split,
   previewOnly,
 }
+
+class _PreviewBackgroundPreset {
+  const _PreviewBackgroundPreset({
+    required this.name,
+    required this.color,
+  });
+
+  final String name;
+  final Color color;
+}
+
+const _lightBackgroundPresets = <_PreviewBackgroundPreset>[
+  _PreviewBackgroundPreset(name: 'Paper', color: Color(0xFFF8F5EC)),
+  _PreviewBackgroundPreset(name: 'Mist', color: Color(0xFFF1F5F9)),
+  _PreviewBackgroundPreset(name: 'Sand', color: Color(0xFFFFF3E0)),
+  _PreviewBackgroundPreset(name: 'Mint', color: Color(0xFFECFDF5)),
+];
+
+const _darkBackgroundPresets = <_PreviewBackgroundPreset>[
+  _PreviewBackgroundPreset(name: 'Slate', color: Color(0xFF1F2937)),
+  _PreviewBackgroundPreset(name: 'Graphite', color: Color(0xFF111827)),
+  _PreviewBackgroundPreset(name: 'Forest', color: Color(0xFF102A24)),
+  _PreviewBackgroundPreset(name: 'Plum', color: Color(0xFF231728)),
+];
 
 void main() {
   runApp(const DemoApp());
@@ -44,10 +62,13 @@ class _MarkdownDemoPageState extends State<MarkdownDemoPage> {
   late final MarkdownController _controller;
   late final MarkdownSelectionController _selectionController;
   late final TextEditingController _editorController;
-  var _themePreset = _DemoThemePreset.ocean;
+  var _foregroundMode = MarkdownThemeForeground.light;
+  var _themeDensity = MarkdownThemeDensity.comfortable;
+  var _backgroundPreset = _lightBackgroundPresets.first;
   var _layoutMode = _DemoLayoutMode.split;
   var _chunkIndex = 0;
   var _isApplyingProgrammaticEdit = false;
+  var _isPreviewSettingsOpen = false;
 
   static const _initialMarkdown = r'''
 # Mixin Markdown Widget Showcase
@@ -234,20 +255,13 @@ This content was appended through `MarkdownController.appendChunk`.
 
   @override
   Widget build(BuildContext context) {
-    final baseTheme = _themePreset == _DemoThemePreset.tight
-        ? MarkdownThemeData.tight(context)
-        : MarkdownThemeData.fallback(context);
-    final markdownTheme = _themePreset == _DemoThemePreset.warm
-        ? baseTheme.copyWith(
-            maxContentWidth: 860,
-            quoteBackgroundColor: const Color(0xFFFFF5E0),
-            quoteBorderColor: const Color(0xFFD79B36),
-            codeBlockBackgroundColor: const Color(0xFFF3E7D2),
-            tableHeaderBackgroundColor: const Color(0xFFE8D6B3),
-            tableRowBackgroundColor: const Color(0xFFFFFBF3),
-            selectionColor: const Color(0x66D79B36),
-          )
-        : baseTheme.copyWith(maxContentWidth: 920);
+    final markdownTheme = MarkdownThemeData.themed(
+      context,
+      foreground: _foregroundMode,
+      density: _themeDensity,
+      maxContentWidth: 920,
+    );
+    final previewBackgroundColor = _backgroundPreset.color;
 
     return Scaffold(
       appBar: AppBar(
@@ -281,30 +295,6 @@ This content was appended through `MarkdownController.appendChunk`.
                   ? Icons.visibility_off_outlined
                   : Icons.visibility_outlined,
             ),
-          ),
-          PopupMenuButton<_DemoThemePreset>(
-            tooltip: 'Switch preview theme',
-            initialValue: _themePreset,
-            icon: const Icon(Icons.palette_outlined),
-            onSelected: (value) {
-              setState(() {
-                _themePreset = value;
-              });
-            },
-            itemBuilder: (context) => const <PopupMenuEntry<_DemoThemePreset>>[
-              PopupMenuItem<_DemoThemePreset>(
-                value: _DemoThemePreset.ocean,
-                child: Text('Ocean theme (default)'),
-              ),
-              PopupMenuItem<_DemoThemePreset>(
-                value: _DemoThemePreset.warm,
-                child: Text('Warm theme (loose)'),
-              ),
-              PopupMenuItem<_DemoThemePreset>(
-                value: _DemoThemePreset.tight,
-                child: Text('Tight theme (compact)'),
-              ),
-            ],
           ),
           TextButton.icon(
             onPressed: _appendChunk,
@@ -370,6 +360,17 @@ This content was appended through `MarkdownController.appendChunk`.
           );
           final previewPanel = _PaneShell(
             title: 'Preview',
+            headerAction: IconButton.outlined(
+              tooltip: _isPreviewSettingsOpen
+                  ? 'Hide preview appearance controls'
+                  : 'Show preview appearance controls',
+              onPressed: _togglePreviewSettings,
+              icon: Icon(
+                _isPreviewSettingsOpen
+                    ? Icons.tune_rounded
+                    : Icons.tune_outlined,
+              ),
+            ),
             subtitleBuilder: (context) => AnimatedBuilder(
               animation: _selectionController,
               builder: (context, _) => Text(
@@ -377,32 +378,82 @@ This content was appended through `MarkdownController.appendChunk`.
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
-            child: MarkdownWidget(
-              key: const Key('markdown-preview'),
-              controller: _controller,
-              selectionController: _selectionController,
-              theme: markdownTheme,
-              onTapLink: (destination, _, __) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Link tapped: $destination')),
-                );
-              },
-              contextMenuBuilder: (context, controller, buttonItems, anchors) {
-                return AdaptiveTextSelectionToolbar.buttonItems(
-                  anchors: anchors,
-                  buttonItems: [
-                    ...buttonItems,
-                    ContextMenuButtonItem(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Custom menu action!')),
-                        );
-                      },
-                      label: '🎉 Custom',
+            child: Stack(
+              children: <Widget>[
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: previewBackgroundColor,
+                      borderRadius: BorderRadius.circular(18),
                     ),
-                  ],
-                );
-              },
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: MarkdownWidget(
+                        key: const Key('markdown-preview'),
+                        controller: _controller,
+                        selectionController: _selectionController,
+                        theme: markdownTheme,
+                        onTapLink: (destination, _, __) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                                content: Text('Link tapped: $destination')),
+                          );
+                        },
+                        contextMenuBuilder:
+                            (context, controller, buttonItems, anchors) {
+                          return AdaptiveTextSelectionToolbar.buttonItems(
+                            anchors: anchors,
+                            buttonItems: [
+                              ...buttonItems,
+                              ContextMenuButtonItem(
+                                onPressed: () {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Custom menu action!'),
+                                    ),
+                                  );
+                                },
+                                label: '🎉 Custom',
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                if (_isPreviewSettingsOpen)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: _togglePreviewSettings,
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                if (_isPreviewSettingsOpen)
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: 360,
+                        maxHeight: 420,
+                      ),
+                      child: Material(
+                        color: Theme.of(context).colorScheme.surface,
+                        elevation: 18,
+                        shadowColor: Colors.black.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(20),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                          child: SingleChildScrollView(
+                            child: _buildPreviewSettingsPanel(context),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           );
 
@@ -465,6 +516,184 @@ This content was appended through `MarkdownController.appendChunk`.
     });
   }
 
+  void _togglePreviewSettings() {
+    setState(() {
+      _isPreviewSettingsOpen = !_isPreviewSettingsOpen;
+    });
+  }
+
+  void _selectBackgroundPreset(_PreviewBackgroundPreset preset) {
+    final isDarkSurface = _darkBackgroundPresets.contains(preset);
+    setState(() {
+      _backgroundPreset = preset;
+      _foregroundMode = isDarkSurface
+          ? MarkdownThemeForeground.dark
+          : MarkdownThemeForeground.light;
+    });
+  }
+
+  Widget _buildPreviewSettingsPanel(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                'Preview appearance',
+                style: textTheme.titleMedium,
+              ),
+            ),
+            IconButton(
+              tooltip: 'Close preview appearance controls',
+              onPressed: _togglePreviewSettings,
+              icon: const Icon(Icons.close_rounded),
+            ),
+          ],
+        ),
+        Text(
+          'Foreground, density, and preview surface presets.',
+          style: textTheme.bodySmall,
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 12,
+          runSpacing: 10,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: <Widget>[
+            Text('Foreground', style: textTheme.labelLarge),
+            SegmentedButton<MarkdownThemeForeground>(
+              showSelectedIcon: false,
+              segments: const <ButtonSegment<MarkdownThemeForeground>>[
+                ButtonSegment<MarkdownThemeForeground>(
+                  value: MarkdownThemeForeground.light,
+                  label: Text('Light'),
+                ),
+                ButtonSegment<MarkdownThemeForeground>(
+                  value: MarkdownThemeForeground.dark,
+                  label: Text('Dark'),
+                ),
+              ],
+              selected: <MarkdownThemeForeground>{_foregroundMode},
+              onSelectionChanged: (selection) {
+                setState(() {
+                  _foregroundMode = selection.first;
+                });
+              },
+            ),
+            FilterChip(
+              label: const Text('Tight spacing'),
+              selected: _themeDensity == MarkdownThemeDensity.tight,
+              onSelected: (selected) {
+                setState(() {
+                  _themeDensity = selected
+                      ? MarkdownThemeDensity.tight
+                      : MarkdownThemeDensity.comfortable;
+                });
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text('Background', style: textTheme.labelLarge),
+        const SizedBox(height: 8),
+        _buildBackgroundPresetSection(
+          context,
+          title: 'Light surfaces',
+          presets: _lightBackgroundPresets,
+        ),
+        const SizedBox(height: 8),
+        _buildBackgroundPresetSection(
+          context,
+          title: 'Dark surfaces',
+          presets: _darkBackgroundPresets,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBackgroundPresetSection(
+    BuildContext context, {
+    required String title,
+    required List<_PreviewBackgroundPreset> presets,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          title,
+          style: textTheme.labelMedium?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final preset in presets)
+              ChoiceChip(
+                showCheckmark: false,
+                selected: preset.name == _backgroundPreset.name,
+                onSelected: (selected) {
+                  if (!selected) {
+                    return;
+                  }
+                  _selectBackgroundPreset(preset);
+                },
+                avatar: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: preset.color,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: ThemeData.estimateBrightnessForColor(
+                                preset.color,
+                              ) ==
+                              Brightness.dark
+                          ? Colors.white.withValues(alpha: 0.45)
+                          : Colors.black.withValues(alpha: 0.12),
+                    ),
+                  ),
+                ),
+                label: Text(preset.name),
+                labelStyle: textTheme.labelMedium?.copyWith(
+                  color: ThemeData.estimateBrightnessForColor(preset.color) ==
+                          Brightness.dark
+                      ? const Color(0xFFF8FAFC)
+                      : const Color(0xFF1F2937),
+                  fontWeight: preset.name == _backgroundPreset.name
+                      ? FontWeight.w700
+                      : FontWeight.w500,
+                ),
+                backgroundColor: preset.color.withValues(
+                  alpha: ThemeData.estimateBrightnessForColor(preset.color) ==
+                          Brightness.dark
+                      ? 0.24
+                      : 0.34,
+                ),
+                selectedColor: preset.color.withValues(
+                  alpha: ThemeData.estimateBrightnessForColor(preset.color) ==
+                          Brightness.dark
+                      ? 0.42
+                      : 0.54,
+                ),
+                side: BorderSide(
+                  color: preset.name == _backgroundPreset.name
+                      ? preset.color.withValues(alpha: 0.9)
+                      : colorScheme.outlineVariant,
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
   void _commitStream() {
     _controller.commitStream();
     _selectionController.attachDocument(_controller.document);
@@ -514,20 +743,20 @@ This content was appended through `MarkdownController.appendChunk`.
     final selectionLabel = _selectionController.hasSelection
         ? 'Model selection: ${_selectionController.selectedPlainText.length} chars.'
         : 'Model selection: none.';
+    final appearanceLabel =
+        'Foreground: ${_foregroundLabel(_foregroundMode)}. Background: ${_backgroundPreset.name}. Spacing: ${_themeDensity == MarkdownThemeDensity.tight ? 'Tight' : 'Comfortable'}.';
     if (_layoutMode == _DemoLayoutMode.previewOnly) {
-      return 'Preview-only mode. Current theme: ${_themeLabel(_themePreset)}. $stateLabel $selectionLabel';
+      return 'Preview-only mode. $appearanceLabel $stateLabel $selectionLabel';
     }
-    return 'Current theme: ${_themeLabel(_themePreset)}. Links surface through the host app. $stateLabel $selectionLabel';
+    return '$appearanceLabel Links surface through the host app. $stateLabel $selectionLabel';
   }
 
-  String _themeLabel(_DemoThemePreset preset) {
-    switch (preset) {
-      case _DemoThemePreset.ocean:
-        return 'Ocean';
-      case _DemoThemePreset.warm:
-        return 'Warm';
-      case _DemoThemePreset.tight:
-        return 'Tight';
+  String _foregroundLabel(MarkdownThemeForeground mode) {
+    switch (mode) {
+      case MarkdownThemeForeground.light:
+        return 'Light';
+      case MarkdownThemeForeground.dark:
+        return 'Dark';
     }
   }
 }
@@ -536,12 +765,14 @@ class _PaneShell extends StatelessWidget {
   const _PaneShell({
     required this.title,
     required this.child,
+    this.headerAction,
     this.subtitle,
     this.subtitleBuilder,
   });
 
   final String title;
   final Widget child;
+  final Widget? headerAction;
   final String? subtitle;
   final WidgetBuilder? subtitleBuilder;
 
@@ -566,7 +797,21 @@ class _PaneShell extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                if (headerAction != null) ...<Widget>[
+                  const SizedBox(width: 12),
+                  headerAction!,
+                ],
+              ],
+            ),
             const SizedBox(height: 6),
             if (subtitleBuilder != null)
               subtitleBuilder!(context)

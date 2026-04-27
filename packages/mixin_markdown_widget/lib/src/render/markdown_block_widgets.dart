@@ -472,7 +472,7 @@ class MarkdownCodeBlockView extends StatelessWidget {
       width: double.infinity,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: theme.inlineCodeBackgroundColor,
+          color: theme.codeBlockBackgroundColor,
           borderRadius: theme.codeBlockBorderRadius,
         ),
         child: Padding(
