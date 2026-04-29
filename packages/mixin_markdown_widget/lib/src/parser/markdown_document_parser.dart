@@ -109,11 +109,22 @@ class MarkdownDocumentParser {
       return parseLines(sourceLines, version: version);
     }
 
-    final parseAppendedChunkAsNewBlocks = _hasBlankLineBoundary(
-          previousSourceEndsWithNewline: previousSourceEndsWithNewline,
-          previousSourceEndsWithBlankLine: previousSourceEndsWithBlankLine,
-          appendedLines: appendedLines,
-        ) &&
+    final hasBlankLineBoundary = _hasBlankLineBoundary(
+      previousSourceEndsWithNewline: previousSourceEndsWithNewline,
+      previousSourceEndsWithBlankLine: previousSourceEndsWithBlankLine,
+      appendedLines: appendedLines,
+    );
+    if (hasBlankLineBoundary &&
+        previousDocument.blocks.last is FootnoteListBlock) {
+      return _parseAppendingAfterTrailingFootnotes(
+        previousDocument: previousDocument,
+        appendedLines: appendedLines,
+        previousSourceLength: previousSourceLength,
+        version: version,
+      );
+    }
+
+    final parseAppendedChunkAsNewBlocks = hasBlankLineBoundary &&
         _canKeepLastBlockStableAcrossBlankAppend(previousDocument.blocks.last);
     final prefixLength = parseAppendedChunkAsNewBlocks
         ? previousDocument.blocks.length
@@ -165,6 +176,57 @@ class MarkdownDocumentParser {
     return document;
   }
 
+  MarkdownDocument _parseAppendingAfterTrailingFootnotes({
+    required MarkdownDocument previousDocument,
+    required List<String> appendedLines,
+    required int previousSourceLength,
+    required int version,
+  }) {
+    final previousFootnotes = previousDocument.blocks.last as FootnoteListBlock;
+    final prefixLength = previousDocument.blocks.length - 1;
+    final prefixKindCounts = _subtractBlockKinds(
+      _kindCountsForDocument(previousDocument),
+      previousFootnotes,
+    );
+    final tailDocument = _parseDocument(
+      appendedLines,
+      version: version,
+      sourceOffset: previousSourceLength,
+      initialKindCounts: prefixKindCounts,
+    );
+
+    final tailBlocks = tailDocument.blocks;
+    final tailFootnotes =
+        tailBlocks.isNotEmpty && tailBlocks.last is FootnoteListBlock
+            ? tailBlocks.last as FootnoteListBlock
+            : null;
+    final tailContentLength =
+        tailFootnotes == null ? tailBlocks.length : tailBlocks.length - 1;
+    final mergedFootnotes = tailFootnotes == null
+        ? previousFootnotes
+        : _mergeFootnoteLists(previousFootnotes, tailFootnotes);
+    final mergedTailBlocks = List<BlockNode>.unmodifiable(<BlockNode>[
+      for (var index = 0; index < tailContentLength; index += 1)
+        tailBlocks[index],
+      mergedFootnotes,
+    ]);
+    final document = MarkdownDocument(
+      blocks: _mergeBlockPrefix(
+        previousDocument.blocks,
+        prefixLength,
+        mergedTailBlocks,
+      ),
+      version: version,
+    );
+
+    final kindCounts = <MarkdownBlockKind, int>{...prefixKindCounts};
+    for (final block in mergedTailBlocks) {
+      _countBlockKindsInBlock(block, kindCounts);
+    }
+    _documentKindCounts[document] = kindCounts;
+    return document;
+  }
+
   MarkdownDocument _parseDocument(
     List<String> lines, {
     required int version,
@@ -202,13 +264,17 @@ class MarkdownDocumentParser {
         sourceOffset: sourceOffset,
       ),
     );
-    if (ranges.length == blocks.length) {
+    final blockRanges = ranges.length == blocks.length + 1 &&
+            (blocks.isEmpty || blocks.last is! FootnoteListBlock)
+        ? ranges.take(blocks.length).toList(growable: false)
+        : ranges;
+    if (blockRanges.length == blocks.length) {
       blocks = _measure(
         timing,
         (elapsed) => timing!.applyRangesMicros += elapsed,
         () => List<BlockNode>.generate(
           blocks.length,
-          (index) => _withSourceRange(blocks[index], ranges[index]),
+          (index) => _withSourceRange(blocks[index], blockRanges[index]),
           growable: false,
         ),
       );
@@ -361,6 +427,24 @@ class MarkdownDocumentParser {
         }
       }
     }
+  }
+
+  FootnoteListBlock _mergeFootnoteLists(
+    FootnoteListBlock previous,
+    FootnoteListBlock tail,
+  ) {
+    final sourceRangeStart = previous.sourceRange?.start;
+    final sourceRangeEnd = tail.sourceRange?.end ?? previous.sourceRange?.end;
+    return FootnoteListBlock(
+      id: previous.id,
+      items: List<ListItemNode>.unmodifiable(<ListItemNode>[
+        ...previous.items,
+        ...tail.items,
+      ]),
+      sourceRange: sourceRangeStart == null || sourceRangeEnd == null
+          ? previous.sourceRange ?? tail.sourceRange
+          : SourceRange(start: sourceRangeStart, end: sourceRangeEnd),
+    );
   }
 
   BlockNode _withSourceRange(BlockNode block, SourceRange sourceRange) {
@@ -529,6 +613,8 @@ class MarkdownDocumentParser {
     }
 
     final ranges = <SourceRange>[];
+    int? footnoteStart;
+    int? footnoteEnd;
     var index = 0;
     while (index < lines.length) {
       if (_isBlankLine(lines[index])) {
@@ -537,6 +623,15 @@ class MarkdownDocumentParser {
       }
 
       final startIndex = index;
+      if (_isFootnoteDefinitionStart(lines[index])) {
+        final endIndex = _consumeFootnoteDefinition(lines, index);
+        footnoteStart ??= sourceOffset + lineStarts[startIndex];
+        footnoteEnd =
+            sourceOffset + _lineEndOffset(lines, lineStarts, endIndex);
+        index = endIndex + 1;
+        continue;
+      }
+
       final endIndex = _consumeBlock(lines, index);
       ranges.add(
         SourceRange(
@@ -547,6 +642,9 @@ class MarkdownDocumentParser {
       index = endIndex + 1;
     }
 
+    if (footnoteStart != null && footnoteEnd != null) {
+      ranges.add(SourceRange(start: footnoteStart, end: footnoteEnd));
+    }
     return ranges;
   }
 
@@ -709,6 +807,32 @@ class MarkdownDocumentParser {
     return endIndex;
   }
 
+  int _consumeFootnoteDefinition(List<String> lines, int startIndex) {
+    var endIndex = startIndex;
+    while (endIndex + 1 < lines.length) {
+      final nextIndex = endIndex + 1;
+      final nextLine = lines[nextIndex];
+      if (_isFootnoteDefinitionStart(nextLine)) {
+        break;
+      }
+      if (_isBlankLine(nextLine)) {
+        final continuationIndex = nextIndex + 1;
+        if (continuationIndex < lines.length &&
+            _isFootnoteContinuationLine(lines[continuationIndex])) {
+          endIndex = continuationIndex;
+          continue;
+        }
+        break;
+      }
+      if (_isFootnoteContinuationLine(nextLine)) {
+        endIndex = nextIndex;
+        continue;
+      }
+      break;
+    }
+    return endIndex;
+  }
+
   bool _startsNewTopLevelBlock(List<String> lines, int index) {
     final line = lines[index];
     return _isIndentedCodeBlockStart(line) ||
@@ -790,6 +914,14 @@ class MarkdownDocumentParser {
     return _definitionContinuationPattern.hasMatch(line);
   }
 
+  bool _isFootnoteDefinitionStart(String line) {
+    return _footnoteDefinitionPattern.hasMatch(line);
+  }
+
+  bool _isFootnoteContinuationLine(String line) {
+    return _leadingIndent(line) >= 4;
+  }
+
   bool _looksLikeTableRow(String line) {
     final trimmed = line.trim();
     return trimmed.isNotEmpty && trimmed.contains('|');
@@ -823,6 +955,8 @@ class MarkdownDocumentParser {
   static final RegExp _listMarkerPattern =
       RegExp(r'^\s{0,3}(?:[-+*]|\d+[.)])\s+');
   static final RegExp _definitionMarkerPattern = RegExp(r'^\s{0,3}:\s?.*$');
+  static final RegExp _footnoteDefinitionPattern =
+      RegExp(r'^\s{0,3}\[\^[^\]]+\]:');
   static final RegExp _definitionContinuationPattern =
       RegExp(r'^(?: {2,}|\t).*$');
   static final RegExp _tableSeparatorPattern = RegExp(
@@ -1762,10 +1896,41 @@ class _MarkdownAstBuilder {
   }
 
   String _normalizeInlineText(String text) {
-    if (!text.contains('\n')) {
+    StringBuffer? buffer;
+    var segmentStart = 0;
+    var index = 0;
+    while (index < text.length) {
+      if (text.codeUnitAt(index) != 0x0A) {
+        index += 1;
+        continue;
+      }
+
+      var next = index + 1;
+      while (next < text.length) {
+        final codeUnit = text.codeUnitAt(next);
+        if (codeUnit != 0x20 && codeUnit != 0x09) {
+          break;
+        }
+        next += 1;
+      }
+      if (next == index + 1) {
+        index += 1;
+        continue;
+      }
+
+      buffer ??= StringBuffer();
+      buffer.write(text.substring(segmentStart, index + 1));
+      segmentStart = next;
+      index = next;
+    }
+
+    if (buffer == null) {
       return text;
     }
-    return text.replaceAll(RegExp(r'\n[ \t]+'), '\n');
+    if (segmentStart < text.length) {
+      buffer.write(text.substring(segmentStart));
+    }
+    return buffer.toString();
   }
 
   MarkdownTableColumnAlignment _parseAlignment(String? raw) {

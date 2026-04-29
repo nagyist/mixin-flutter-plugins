@@ -26,8 +26,7 @@ void main() {
       );
       final chunks = List<String>.generate(
         scenario.iterations,
-        (index) =>
-            '\n\n## Chunk $index\n\nParagraph ${index + 1} with **bold** and `code`.',
+        _buildAppendChunk,
         growable: false,
       );
 
@@ -110,11 +109,106 @@ String _buildInitialMarkdown({required int repetitions}) {
   final buffer = StringBuffer('# Benchmark\n');
   for (var index = 0; index < repetitions; index++) {
     buffer
-      ..write('\n\nParagraph $index with a [link](https://example.com/$index).')
-      ..write('\n\n- First item\n- Second item')
-      ..write('\n\n```dart\nprint($index);\n```');
+      ..write('\n\n## Baseline Section $index')
+      ..write(
+        '\n\nParagraph $index mixes **bold**, _emphasis_, ~~strike~~, '
+        '[links](https://example.com/$index), `inline_code_$index`, '
+        r'\( a_i^2 + b_i^2 = c_i^2 \), and plain prose that should wrap '
+        'across multiple visual lines in realistic desktop layouts.',
+      )
+      ..write('\n\n- Hot path with `parse_$index`, `scan_$index`, '
+          '`normalize_$index`, `layout_$index`, `paint_$index`, '
+          '`select_$index`, `copy_$index`, and `commit_$index` all in one line')
+      ..write(
+          '\n- [x] Completed task with [trace](https://trace.example/$index)')
+      ..write('\n- [ ] Pending task with nested context')
+      ..write('\n  1. Ordered child with `child_${index}_a` and '
+          r'\( \Delta t < 16ms \)')
+      ..write('\n  2. Ordered child with **rich text** and more wrapping text')
+      ..write(
+          '\n\n> Quote $index starts with `quoted_token_$index` and a link.')
+      ..write('\n> > Nested quote keeps **strong text**, _emphasis_, and '
+          r'\( q_{n+1}=q_n+r \).')
+      ..write('\n\nTerm $index')
+      ..write('\n: Definition includes ==mark==, H~2~O, 2^10^, '
+          '<kbd>Cmd</kbd>+<kbd>K</kbd>, and https://example.com/plain/$index.')
+      ..write('\n\n| Metric | Value | Notes |')
+      ..write('\n| :--- | ---: | :--- |')
+      ..write('\n| parse | ${index * 3 + 7} | `MarkdownDocumentParser` '
+          'with [range](https://range.example/$index) |')
+      ..write('\n| render | ${index * 5 + 11} | wraps `inline` code and '
+          r'\( \sqrt{x^2+y^2} \) math |')
+      ..write('\n\n```dart')
+      ..write('\nfinal tokens$index = <String>[')
+      ..write('\n  for (var i = 0; i < 8; i++) "token_\$i",')
+      ..write('\n];')
+      ..write('\nint compute$index(int input) => input * ${index + 3};')
+      ..write('\n```')
+      ..write(
+        '\n\n![Benchmark image $index](missing-image-$index.png?w=640&h=240)',
+      )
+      ..write('\n\n[^baseline-$index]: Footnote with `footnote_$index`, '
+          '[reference](https://footnote.example/$index), and extra detail.');
   }
   return buffer.toString();
+}
+
+String _buildAppendChunk(int index) {
+  switch (index % 6) {
+    case 0:
+      return '\n\n## Chunk $index: dense inline content\n\n'
+          'A streaming paragraph contains **bold_$index**, _emphasis_$index, '
+          '~~strike_$index~~, [link](https://stream.example/$index), '
+          '`code_a_$index`, `code_b_$index`, `code_c_$index`, '
+          r'\( \alpha_i + \beta_i = \gamma_i \), '
+          'plain URL https://plain.example/$index, and enough natural text to '
+          'force multiple wrapping decisions while the unstable tail grows.';
+    case 1:
+      return '\n\n## Chunk $index: list pressure\n\n'
+          '- One list row with `a_$index`, `b_$index`, `c_$index`, '
+          '`d_$index`, `e_$index`, `f_$index`, `g_$index`, `h_$index`, '
+          '`i_$index`, `j_$index`, `k_$index`, and `l_$index` inline code spans\n'
+          '- [x] Task item with **strong** content and [audit](https://audit.example/$index)\n'
+          '- [ ] Task item with nested ordered children\n'
+          '  1. Child `child_${index}_one` with wrapped prose and '
+          r'\( latency < 50ms \)'
+          '\n'
+          '  2. Child `child_${index}_two` with more detail';
+    case 2:
+      return '\n\n## Chunk $index: blockquote stack\n\n'
+          '> Parent quote carries `quote_$index` and [link](https://quote.example/$index).\n'
+          '> > Nested quote has **bold**, _emphasis_, and '
+          r'\( \sum_{i=0}^{n} i = n(n+1)/2 \).'
+          '\n'
+          '> > > Deep quote ends with `deep_token_$index` and trailing prose.';
+    case 3:
+      return '\n\n## Chunk $index: table matrix\n\n'
+          '| Field | Parser State | Render State | Notes |\n'
+          '| :--- | :---: | :---: | :--- |\n'
+          '| header | `scan_$index` | `layout_$index` | [docs](https://docs.example/$index) |\n'
+          '| body | `normalize_$index` | `paint_$index` | '
+          r'\( x_{i+1}=x_i+\Delta \)'
+          ' plus wrapped text |\n'
+          '| tail | `reuse_$index` | `select_$index` | many inline spans in a cell |';
+    case 4:
+      return '\n\n## Chunk $index: definitions and footnotes\n\n'
+          'Term $index\n'
+          ': Definition uses ==highlight==, H~2~O, 2^10^, <kbd>Esc</kbd>, '
+          '`definition_$index`, and a footnote reference.[^chunk-$index]\n\n'
+          '[^chunk-$index]: Footnote body with [link](https://note.example/$index), '
+          '`note_code_$index`, and a second sentence to keep it non-trivial.';
+    default:
+      return '\n\n## Chunk $index: media and code\n\n'
+          '[![Linked image $index](missing-linked-$index.png?w=800&h=320)]'
+          '(https://image.example/$index)\n\n'
+          '```dart\n'
+          'final frame$index = <String, Object?>{\n'
+          '  "index": $index,\n'
+          '  "tokens": ["alpha", "beta", "gamma", "delta"],\n'
+          '};\n'
+          'String render$index() => frame$index.entries.join(",");\n'
+          '```';
+  }
 }
 
 class _BenchmarkScenario {

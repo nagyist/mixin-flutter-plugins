@@ -887,6 +887,51 @@ $$
     expect(identical(controller.document.blocks[1], initialParagraph), isTrue);
   });
 
+  test('append parsing keeps trailing footnotes after appended content', () {
+    final timings = <MarkdownParserTiming>[];
+    final parser = MarkdownDocumentParser(onTiming: timings.add);
+    final controller = MarkdownController(
+      data: 'Intro with footnote.[^intro]\n\n[^intro]: Intro note.',
+      parser: parser,
+    );
+    final initialParagraph = controller.document.blocks.first;
+    final initialFootnotes = controller.document.blocks.last;
+
+    timings.clear();
+    controller.appendChunk('\n\nTail paragraph');
+
+    expect(controller.document.blocks, hasLength(3));
+    expect(
+        identical(controller.document.blocks.first, initialParagraph), isTrue);
+    expect(controller.document.blocks[1], isA<ParagraphBlock>());
+    expect(
+        identical(controller.document.blocks.last, initialFootnotes), isTrue);
+    expect(timings.single.parseLineCount, 3);
+  });
+
+  test('append parsing merges new footnotes into trailing footnote block', () {
+    final timings = <MarkdownParserTiming>[];
+    final parser = MarkdownDocumentParser(onTiming: timings.add);
+    final controller = MarkdownController(
+      data: 'Intro with footnote.[^intro]\n\n[^intro]: Intro note.',
+      parser: parser,
+    );
+    final initialParagraph = controller.document.blocks.first;
+
+    timings.clear();
+    controller.appendChunk(
+      '\n\nTail with footnote.[^tail]\n\n[^tail]: Tail note.',
+    );
+
+    expect(controller.document.blocks, hasLength(3));
+    expect(
+        identical(controller.document.blocks.first, initialParagraph), isTrue);
+    expect(controller.document.blocks[1], isA<ParagraphBlock>());
+    final footnotes = controller.document.blocks.last as FootnoteListBlock;
+    expect(footnotes.items, hasLength(2));
+    expect(timings.single.parseLineCount, 5);
+  });
+
   test('serializes a selected range across multiple blocks', () {
     const input = '''
 # Heading
