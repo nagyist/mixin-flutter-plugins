@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+* [mixin_markdown_widget] enhance Markdown rendering [#476](https://github.com/MixinNetwork/flutter-plugins/pull/476)
+
 ## 0.2.0
 
 **BREAKING CHANGE**
