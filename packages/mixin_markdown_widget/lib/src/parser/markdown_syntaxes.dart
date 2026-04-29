@@ -1,9 +1,12 @@
 import 'package:markdown/markdown.dart' as md;
+import 'package:html/dom.dart' as html_dom;
+import 'package:html/parser.dart' as html_parser;
 
 List<md.BlockSyntax> buildMarkdownBlockSyntaxes() {
   return <md.BlockSyntax>[
     const md.FencedCodeBlockSyntax(),
     const MarkdownMathBlockSyntax(),
+    const MarkdownHtmlBlockSyntax(),
     const md.HeaderWithIdSyntax(),
     const md.SetextHeaderWithIdSyntax(),
     const md.TableSyntax(),
@@ -28,6 +31,258 @@ List<md.InlineSyntax> buildMarkdownInlineSyntaxes() {
     md.AutolinkExtensionSyntax(),
     md.InlineHtmlSyntax(),
   ];
+}
+
+class MarkdownHtmlBlockSyntax extends md.BlockSyntax {
+  const MarkdownHtmlBlockSyntax();
+
+  static const Set<String> _supportedBlockTags = <String>{
+    'details',
+    'summary',
+    'br',
+    'p',
+    'blockquote',
+    'ul',
+    'ol',
+    'li',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+  };
+
+  static final RegExp _openingPattern = RegExp(
+    r'^\s{0,3}<([A-Za-z][A-Za-z0-9-]*)(?:\s+[^>]*)?>',
+    caseSensitive: false,
+  );
+
+  @override
+  RegExp get pattern => _openingPattern;
+
+  @override
+  bool canParse(md.BlockParser parser) {
+    final match = _openingPattern.firstMatch(parser.current.content);
+    if (match == null) {
+      return false;
+    }
+    return _supportedBlockTags.contains(match.group(1)!.toLowerCase());
+  }
+
+  @override
+  md.Node? parse(md.BlockParser parser) {
+    final firstLine = parser.current.content;
+    final match = _openingPattern.firstMatch(firstLine)!;
+    final tag = match.group(1)!.toLowerCase();
+    final lines = <String>[];
+
+    if (_lineContainsClosingTag(firstLine, tag) || _isVoidLine(firstLine)) {
+      lines.add(firstLine);
+      parser.advance();
+    } else {
+      var depth = 0;
+      while (!parser.isDone) {
+        final line = parser.current.content;
+        lines.add(line);
+        depth += _openingTagCount(line, tag);
+        depth -= _closingTagCount(line, tag);
+        parser.advance();
+        if (depth <= 0 || parser.isDone) {
+          break;
+        }
+      }
+    }
+
+    final source = lines.join('\n');
+    final nodes = tag == 'details'
+        ? _convertDetailsFragment(source)
+        : _convertHtmlFragment(source);
+    if (nodes.isEmpty) {
+      return null;
+    }
+    if (nodes.length == 1) {
+      return nodes.single;
+    }
+    return md.Element('html-fragment', nodes);
+  }
+
+  bool _isVoidLine(String line) {
+    return RegExp(r'<(?:br|img)(?:\s+[^>]*)?\s*/?>', caseSensitive: false)
+        .hasMatch(line);
+  }
+
+  bool _lineContainsClosingTag(String line, String tag) {
+    return RegExp('</$tag\\s*>', caseSensitive: false).hasMatch(line);
+  }
+
+  int _openingTagCount(String line, String tag) {
+    return RegExp('<$tag(?:\\s+[^>]*)?>', caseSensitive: false)
+        .allMatches(line)
+        .length;
+  }
+
+  int _closingTagCount(String line, String tag) {
+    return RegExp('</$tag\\s*>', caseSensitive: false).allMatches(line).length;
+  }
+
+  List<md.Node> _convertHtmlFragment(String source) {
+    final fragment = html_parser.parseFragment(source);
+    return fragment.nodes.expand(_convertHtmlNode).toList(growable: false);
+  }
+
+  List<md.Node> _convertDetailsFragment(String source) {
+    final match = RegExp(
+      r'^\s{0,3}<details([^>]*)>([\s\S]*)</details>\s*$',
+      caseSensitive: false,
+    ).firstMatch(source);
+    if (match == null) {
+      return _convertHtmlFragment(source);
+    }
+
+    final attributesSource = match.group(1) ?? '';
+    var bodySource = match.group(2) ?? '';
+    final summaryMatch = RegExp(
+      r'<summary(?:\s+[^>]*)?>([\s\S]*?)</summary>',
+      caseSensitive: false,
+    ).firstMatch(bodySource);
+
+    md.Element? summary;
+    if (summaryMatch != null) {
+      final summaryNodes = _convertHtmlFragment(summaryMatch.group(0)!);
+      for (final node in summaryNodes) {
+        if (node is md.Element && node.tag == 'summary') {
+          summary = node;
+          break;
+        }
+      }
+      bodySource = bodySource.replaceRange(
+        summaryMatch.start,
+        summaryMatch.end,
+        '',
+      );
+    }
+
+    final details = md.Element(
+      'details',
+      <md.Node>[
+        if (summary != null) summary,
+        ..._parseMarkdownFragment(bodySource),
+      ],
+    );
+    if (RegExp(r'(^|\s)open(?:\s|=|$)', caseSensitive: false)
+        .hasMatch(attributesSource)) {
+      details.attributes['open'] = '';
+    }
+    return <md.Node>[details];
+  }
+
+  List<md.Node> _parseMarkdownFragment(String source) {
+    final normalizedSource = _normalizeMarkdownFragmentSource(source);
+    if (normalizedSource.isEmpty) {
+      return const <md.Node>[];
+    }
+    final document = md.Document(
+      extensionSet: md.ExtensionSet.none,
+      blockSyntaxes: buildMarkdownBlockSyntaxes(),
+      inlineSyntaxes: buildMarkdownInlineSyntaxes(),
+      encodeHtml: false,
+    );
+    return document.parseLines(normalizedSource.split('\n'));
+  }
+
+  String _normalizeMarkdownFragmentSource(String source) {
+    return _trimSurroundingBlankLines(source).replaceAllMapped(
+      RegExp(r'([^\n])\n([ \t]*(?:[-+*]|\d+[.)])\s+)', multiLine: true),
+      (match) => '${match.group(1)}\n\n${match.group(2)}',
+    );
+  }
+
+  String _trimSurroundingBlankLines(String source) {
+    final lines = source.split('\n');
+    var start = 0;
+    var end = lines.length;
+    while (start < end && lines[start].trim().isEmpty) {
+      start += 1;
+    }
+    while (end > start && lines[end - 1].trim().isEmpty) {
+      end -= 1;
+    }
+    return lines.sublist(start, end).join('\n');
+  }
+
+  bool _shouldPreserveHtmlWhitespaceText(String text) {
+    if (text.isEmpty || text.trim().isNotEmpty) {
+      return false;
+    }
+    if (text.contains('\n') || text.contains('\r')) {
+      return false;
+    }
+    return text.contains(RegExp(r'[ \t]'));
+  }
+
+  Iterable<md.Node> _convertHtmlNode(html_dom.Node node) sync* {
+    if (node is html_dom.Text) {
+      final originalText = node.text;
+      final text = _normalizeHtmlText(originalText);
+      if (text.trim().isNotEmpty) {
+        yield md.Text(text);
+      } else if (_shouldPreserveHtmlWhitespaceText(originalText)) {
+        yield md.Text(' ');
+      }
+      return;
+    }
+    if (node is! html_dom.Element) {
+      return;
+    }
+
+    final tag = node.localName?.toLowerCase();
+    if (tag == null || tag == 'script' || tag == 'style') {
+      return;
+    }
+    if (tag == 'html' || tag == 'head' || tag == 'body') {
+      for (final child in node.nodes) {
+        yield* _convertHtmlNode(child);
+      }
+      return;
+    }
+
+    if (tag == 'br') {
+      yield md.Element.empty('br');
+      return;
+    }
+    if (tag == 'img') {
+      yield _elementFromHtml(node, 'img', const <md.Node>[]);
+      return;
+    }
+
+    final children = <md.Node>[
+      for (final child in node.nodes) ..._convertHtmlNode(child),
+    ];
+    if (!_supportedBlockTags.contains(tag) &&
+        !MarkdownInlineHtmlTagSyntax.supportedTags.contains(tag)) {
+      yield* children;
+      return;
+    }
+    yield _elementFromHtml(node, tag, children);
+  }
+
+  md.Element _elementFromHtml(
+    html_dom.Element node,
+    String tag,
+    List<md.Node> children,
+  ) {
+    final element =
+        children.isEmpty ? md.Element.empty(tag) : md.Element(tag, children);
+    for (final entry in node.attributes.entries) {
+      element.attributes[entry.key.toString().toLowerCase()] = entry.value;
+    }
+    return element;
+  }
+
+  String _normalizeHtmlText(String text) {
+    return text.replaceAll(RegExp(r'[ \t\r\n]+'), ' ');
+  }
 }
 
 class MarkdownMathBlockSyntax extends md.BlockSyntax {
@@ -193,7 +448,7 @@ class MarkdownDefinitionListSyntax extends md.BlockSyntax {
 class MarkdownInlineHtmlTagSyntax extends md.InlineSyntax {
   MarkdownInlineHtmlTagSyntax() : super(r'<', startCharacter: 0x3C);
 
-  static const Set<String> _supportedTags = <String>{
+  static const Set<String> supportedTags = <String>{
     'a',
     'b',
     'i',
@@ -246,7 +501,7 @@ class MarkdownInlineHtmlTagSyntax extends md.InlineSyntax {
     }
 
     final tag = pairMatch.group(1)!.toLowerCase();
-    if (!_supportedTags.contains(tag)) {
+    if (!supportedTags.contains(tag)) {
       return false;
     }
     final rawAttributes = pairMatch.group(2);
