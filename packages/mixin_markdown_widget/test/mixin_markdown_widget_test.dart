@@ -41,6 +41,60 @@ int _countStyledDescendantSpans(InlineSpan span, TextStyle? rootStyle) {
   return count;
 }
 
+Future<void> _pumpUntilCodeBlockHighlighted(
+  WidgetTester tester,
+  Finder richTextFinder,
+) async {
+  for (var attempt = 0; attempt < 20; attempt += 1) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump();
+    final richText = tester.widget<RichText>(richTextFinder);
+    final rootSpan = richText.text as TextSpan;
+    if (_countStyledDescendantSpans(rootSpan, rootSpan.style) > 0) {
+      return;
+    }
+  }
+  final richText = tester.widget<RichText>(richTextFinder);
+  final rootSpan = richText.text as TextSpan;
+  expect(_countStyledDescendantSpans(rootSpan, rootSpan.style), greaterThan(0));
+}
+
+Future<MarkdownCodeHighlightPresentation> _pumpUntilCacheHighlighted(
+  WidgetTester tester, {
+  required MarkdownCodeHighlightCache cache,
+  required String blockId,
+  required String source,
+  required TextStyle baseStyle,
+  required MarkdownThemeData theme,
+  String? language,
+}) async {
+  for (var attempt = 0; attempt < 20; attempt += 1) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump();
+    final presentation = cache.resolve(
+      blockId: blockId,
+      source: source,
+      baseStyle: baseStyle,
+      theme: theme,
+      language: language,
+    );
+    if (presentation.isHighlighted) {
+      return presentation;
+    }
+  }
+  return cache.resolve(
+    blockId: blockId,
+    source: source,
+    baseStyle: baseStyle,
+    theme: theme,
+    language: language,
+  );
+}
+
 TextStyle? _styleForText(InlineSpan span, String text, [TextStyle? inherited]) {
   if (span is! TextSpan) {
     return null;
@@ -2131,7 +2185,6 @@ return value;
         ),
       ),
     );
-    await tester.pump();
 
     final richTextFinder = find.byWidgetPredicate(
       (widget) =>
@@ -2140,6 +2193,7 @@ return value;
     );
 
     expect(richTextFinder, findsOneWidget);
+    await _pumpUntilCodeBlockHighlighted(tester, richTextFinder);
 
     final richText = tester.widget<RichText>(richTextFinder);
     final rootSpan = richText.text as TextSpan;
@@ -2176,8 +2230,7 @@ return value;
     var rootSpan = richText.text as TextSpan;
     expect(_countStyledDescendantSpans(rootSpan, rootSpan.style), 0);
 
-    await tester.pump();
-    await tester.pump();
+    await _pumpUntilCodeBlockHighlighted(tester, richTextFinder);
 
     richText = tester.widget<RichText>(richTextFinder);
     rootSpan = richText.text as TextSpan;
@@ -2243,10 +2296,9 @@ return value;
     );
     expect(presentation.isHighlighted, isFalse);
 
-    await tester.pump();
-    await tester.pump();
-
-    presentation = cache.resolve(
+    presentation = await _pumpUntilCacheHighlighted(
+      tester,
+      cache: cache,
       blockId: 'block-1',
       source: source,
       baseStyle: fallbackTheme.codeBlockStyle,
@@ -2264,10 +2316,9 @@ return value;
     );
     expect(presentation.isHighlighted, isTrue);
 
-    await tester.pump();
-    await tester.pump();
-
-    presentation = cache.resolve(
+    presentation = await _pumpUntilCacheHighlighted(
+      tester,
+      cache: cache,
       blockId: 'block-1',
       source: source,
       baseStyle: tightTheme.codeBlockStyle,

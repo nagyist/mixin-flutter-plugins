@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:re_highlight/languages/all.dart';
 import 'package:re_highlight/re_highlight.dart';
 
@@ -13,11 +12,13 @@ class MarkdownCodeSyntaxHighlighter {
   const MarkdownCodeSyntaxHighlighter();
 
   static const int _autoDetectMaxChars = 4000;
-  static const int _backgroundIsolateMinLines = 80;
-  static const int _backgroundIsolateMinChars = 6000;
-
-  static final Highlight _highlight = Highlight()
-    ..registerLanguages(builtinAllLanguages);
+  static const int _maxSegmentCacheEntries = 128;
+  static final Map<_MarkdownHighlightRequestKey,
+          List<_MarkdownHighlightSegment>> _segmentCache =
+      <_MarkdownHighlightRequestKey, List<_MarkdownHighlightSegment>>{};
+  static final Map<_MarkdownHighlightRequestKey,
+          Future<List<_MarkdownHighlightSegment>>> _pendingSegmentRequests =
+      <_MarkdownHighlightRequestKey, Future<List<_MarkdownHighlightSegment>>>{};
 
   MarkdownCodeHighlightPresentation buildPlainTextPresentation({
     required String source,
@@ -75,12 +76,8 @@ class MarkdownCodeSyntaxHighlighter {
     required MarkdownThemeData theme,
     String? language,
   }) {
-    return buildPresentation(
-      source: source,
-      baseStyle: baseStyle,
-      theme: theme,
-      language: language,
-    ).span;
+    return buildPlainTextPresentation(source: source, baseStyle: baseStyle)
+        .span;
   }
 
   MarkdownCodeHighlightPresentation buildPresentation({
@@ -89,21 +86,7 @@ class MarkdownCodeSyntaxHighlighter {
     required MarkdownThemeData theme,
     String? language,
   }) {
-    if (source.isEmpty ||
-        shouldDegradeHighlight(source: source, theme: theme)) {
-      return buildPlainTextPresentation(source: source, baseStyle: baseStyle);
-    }
-    final segments = _highlightSegmentsSync(
-      source: source,
-      language: _normalizeLanguage(language),
-    );
-    return _presentationFromSegments(
-      segments,
-      source: source,
-      baseStyle: baseStyle,
-      theme: theme,
-      isHighlighted: segments.isNotEmpty,
-    );
+    return buildPlainTextPresentation(source: source, baseStyle: baseStyle);
   }
 
   List<MarkdownPretextInlineRun> buildPretextRuns({
@@ -112,12 +95,8 @@ class MarkdownCodeSyntaxHighlighter {
     required MarkdownThemeData theme,
     String? language,
   }) {
-    return buildPresentation(
-      source: source,
-      baseStyle: baseStyle,
-      theme: theme,
-      language: language,
-    ).runs;
+    return buildPlainTextPresentation(source: source, baseStyle: baseStyle)
+        .runs;
   }
 
   int lineCountOf(String source) {
@@ -131,53 +110,39 @@ class MarkdownCodeSyntaxHighlighter {
     required String source,
     required String? language,
   }) async {
-    if (_shouldUseBackgroundIsolate(source: source, language: language)) {
-      final response =
-          await compute<Map<String, Object?>, List<Map<String, Object?>>>(
-        _highlightSegmentsInBackground,
-        <String, Object?>{
-          'source': source,
-          'language': language,
-        },
-      );
-      return response
-          .map(_MarkdownHighlightSegment.fromMessage)
-          .toList(growable: false);
-    }
-    return Future<List<_MarkdownHighlightSegment>>.value(
-      _highlightSegmentsSync(source: source, language: language),
-    );
-  }
-
-  bool _shouldUseBackgroundIsolate({
-    required String source,
-    required String? language,
-  }) {
-    if (kIsWeb) {
-      return false;
-    }
-    if (source.length < _backgroundIsolateMinChars &&
-        lineCountOf(source) < _backgroundIsolateMinLines) {
-      return false;
-    }
-    return language != null || source.length <= _autoDetectMaxChars;
-  }
-
-  List<_MarkdownHighlightSegment> _highlightSegmentsSync({
-    required String source,
-    required String? language,
-  }) {
-    if (source.isEmpty) {
-      return const <_MarkdownHighlightSegment>[];
-    }
-    final result = _runHighlight(
-      _highlight,
+    final cacheKey = _MarkdownHighlightRequestKey(
       source: source,
       language: language,
     );
-    final renderer = _MarkdownHighlightSegmentRenderer();
-    result.render(renderer);
-    return renderer.segments;
+    final cached = _segmentCache[cacheKey];
+    if (cached != null) {
+      return cached;
+    }
+    final pending = _pendingSegmentRequests[cacheKey];
+    if (pending != null) {
+      return pending;
+    }
+
+    final request = compute<Map<String, Object?>, List<Map<String, Object?>>>(
+      _highlightSegmentsInBackground,
+      <String, Object?>{
+        'source': source,
+        'language': language,
+      },
+    ).then((response) {
+      final segments = response
+          .map(_MarkdownHighlightSegment.fromMessage)
+          .toList(growable: false);
+      if (_segmentCache.length >= _maxSegmentCacheEntries) {
+        _segmentCache.remove(_segmentCache.keys.first);
+      }
+      _segmentCache[cacheKey] = segments;
+      return segments;
+    }).whenComplete(() {
+      _pendingSegmentRequests.remove(cacheKey);
+    });
+    _pendingSegmentRequests[cacheKey] = request;
+    return request;
   }
 
   String? _normalizeLanguage(String? language) {
@@ -186,24 +151,6 @@ class MarkdownCodeSyntaxHighlighter {
       return null;
     }
     return normalized;
-  }
-
-  HighlightResult _runHighlight(
-    Highlight highlighter, {
-    required String source,
-    required String? language,
-  }) {
-    try {
-      if (language != null && highlighter.getLanguage(language) != null) {
-        return highlighter.highlight(code: source, language: language);
-      }
-      if (source.length <= _autoDetectMaxChars) {
-        return highlighter.highlightAuto(source);
-      }
-    } catch (_) {
-      return highlighter.justTextHighlightResult(source);
-    }
-    return highlighter.justTextHighlightResult(source);
   }
 
   MarkdownCodeHighlightPresentation _presentationFromSegments(
@@ -416,23 +363,18 @@ class MarkdownCodeHighlightCache extends ChangeNotifier {
       presentation: placeholderPresentation,
       isPending: true,
     );
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (_isDisposed) {
-        return;
-      }
-      unawaited(
-        _startHighlight(
-          blockId: blockId,
-          requestId: requestId,
-          contentSignature: contentSignature,
-          presentationSignature: presentationSignature,
-          source: source,
-          baseStyle: baseStyle,
-          theme: theme,
-          language: language,
-        ),
-      );
-    });
+    unawaited(
+      _startHighlight(
+        blockId: blockId,
+        requestId: requestId,
+        contentSignature: contentSignature,
+        presentationSignature: presentationSignature,
+        source: source,
+        baseStyle: baseStyle,
+        theme: theme,
+        language: language,
+      ),
+    );
     return placeholderPresentation;
   }
 
@@ -528,6 +470,27 @@ class _MarkdownCodeHighlightCacheEntry {
   final int requestId;
   final MarkdownCodeHighlightPresentation presentation;
   final bool isPending;
+}
+
+@immutable
+class _MarkdownHighlightRequestKey {
+  const _MarkdownHighlightRequestKey({
+    required this.source,
+    required this.language,
+  });
+
+  final String source;
+  final String? language;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _MarkdownHighlightRequestKey &&
+        other.source == source &&
+        other.language == language;
+  }
+
+  @override
+  int get hashCode => Object.hash(source, language);
 }
 
 @immutable
