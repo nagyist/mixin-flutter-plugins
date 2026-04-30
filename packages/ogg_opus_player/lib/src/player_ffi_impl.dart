@@ -187,4 +187,7 @@ class OggOpusRecorderFfiImpl extends OggOpusRecorder {
     malloc.free(waveDataSizePointer);
     return Future.value(waveData);
   }
+
+  @override
+  Stream<OggOpusTranscription> get transcriptions => const Stream.empty();
 }

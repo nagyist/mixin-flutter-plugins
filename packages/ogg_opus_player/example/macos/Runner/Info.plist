@@ -30,5 +30,7 @@
 	<string>NSApplication</string>
 	<key>NSMicrophoneUsageDescription</key>
     <string>Example uses your microphone to record voice for test.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+    <string>Example uses speech recognition to transcribe recorded voice.</string>
 </dict>
 </plist>

@@ -334,8 +334,7 @@ class MarkdownMathBlockSyntax extends md.BlockSyntax {
   }
 
   static final RegExp _dollarClosingPattern = RegExp(r'^\s{0,3}\$\$\s*$');
-  static final RegExp _backslashClosingPattern =
-      RegExp(r'^\s{0,3}\\\]\s*$');
+  static final RegExp _backslashClosingPattern = RegExp(r'^\s{0,3}\\\]\s*$');
 }
 
 class MarkdownDefinitionListSyntax extends md.BlockSyntax {

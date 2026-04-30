@@ -6,8 +6,8 @@ a ogg opus file player for flutter.
 
 | platform |   | required os version |
 |----------|---|---------------------|
-| iOS      | ✅ | 10.0                |
-| macOS    | ✅ | 10.12               |
+| iOS      | ✅ | 13.0                |
+| macOS    | ✅ | 10.15               |
 | Windows  | ✅ |                     |
 | Linux    | ✅ |                     |
 | Android  | ✅ | minSdk 21           |
@@ -41,6 +41,42 @@ For android/iOS platform, you need to manage audio session by yourself.
 
 It is recommended to use [audio_session](https://pub.dev/packages/audio_session) to manage audio session.
 
+## Speech recognition
+
+Speech recognition is currently only supported on iOS 10.0 or later and macOS 10.15 or later.
+
+```dart
+final status = await OggOpusSpeechRecognizer.authorizationStatus();
+await OggOpusSpeechRecognizer.requestAuthorization();
+
+final transcription = await OggOpusSpeechRecognizer.transcribeFile(
+  'file_path.ogg',
+  localeIdentifier:
+      WidgetsBinding.instance.platformDispatcher.locale.toLanguageTag(),
+);
+print(transcription.text);
+```
+
+For live recording transcription, enable transcription when creating the recorder:
+
+```dart
+final recorder = OggOpusRecorder(
+  'file_path.ogg',
+  enableTranscription: true,
+  transcriptionLocaleIdentifier:
+      WidgetsBinding.instance.platformDispatcher.locale.toLanguageTag(),
+);
+
+final subscription = recorder.transcriptions.listen((transcription) {
+  print(transcription.text);
+});
+
+recorder.start();
+```
+
+On macOS, requesting speech recognition permission from Flutter tooling or VS Code can crash before Dart
+receives an error. Start the app from Xcode when granting speech recognition permission for the first time.
+
 ## Linux required
 
 Need SDL2 library installed on Linux.
@@ -62,12 +98,21 @@ For example:
     <string>Example uses your microphone to record voice for test.</string>
 ```
 
+Speech recognition also requires `NSSpeechRecognitionUsageDescription`:
+
+```
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Example uses speech recognition to transcribe recorded voice.</string>
+```
+
 for macOS, you also need update your `DebugProfile.entitlements` and `ReleaseProfile.entitlements` with the following:
 
 ```
     <key>com.apple.security.device.microphone</key>
     <true/>
     <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
     <true/>
 ```
 

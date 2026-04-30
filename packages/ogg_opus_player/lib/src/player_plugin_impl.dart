@@ -88,9 +88,61 @@ Future<dynamic> _handleMethodCall(MethodCall call) async {
       final waveform = (call.arguments['waveform'] as List).cast<int>();
       recorder.onFinished(duration, waveform);
       break;
+    case "onRecorderTranscription":
+      final recorderId = call.arguments['recorderId'] as int;
+      final recorder = _recorders[recorderId];
+      if (recorder == null) {
+        return;
+      }
+      recorder.onTranscription(
+        OggOpusTranscription.fromMap(call.arguments as Map<Object?, Object?>),
+      );
+      break;
+    case "onRecorderTranscriptionFailed":
+      final recorderId = call.arguments['recorderId'] as int;
+      final recorder = _recorders[recorderId];
+      if (recorder == null) {
+        return;
+      }
+      final error = call.arguments['error'] as String? ?? 'Unknown error';
+      recorder.onTranscriptionError(error);
+      break;
     default:
       break;
   }
+}
+
+Future<void> requestSpeechRecognitionAuthorization() async {
+  _initChannelIfNeeded();
+  await _channel.invokeMethod('requestSpeechRecognitionAuthorization');
+}
+
+Future<OggOpusSpeechAuthorizationStatus>
+    speechRecognitionAuthorizationStatus() async {
+  _initChannelIfNeeded();
+  final status = await _channel
+      .invokeMethod<String>('speechRecognitionAuthorizationStatus');
+  return OggOpusSpeechAuthorizationStatus.values.firstWhere(
+    (value) => value.name == status,
+    orElse: () => OggOpusSpeechAuthorizationStatus.unknown,
+  );
+}
+
+Future<OggOpusTranscription> transcribeOggOpusFile(
+  String path, {
+  String? localeIdentifier,
+  bool addsPunctuation = true,
+}) async {
+  _initChannelIfNeeded();
+  final result = await _channel.invokeMapMethod<Object?, Object?>(
+    'transcribeFile',
+    {
+      'path': path,
+      'localeIdentifier': localeIdentifier,
+      'addsPunctuation': addsPunctuation,
+    },
+  );
+  return OggOpusTranscription.fromMap(result ?? {});
 }
 
 class OggOpusPlayerPluginImpl extends OggOpusPlayer {
@@ -192,11 +244,21 @@ class OggOpusPlayerPluginImpl extends OggOpusPlayer {
 }
 
 class OggOpusRecorderPluginImpl extends OggOpusRecorder {
-  OggOpusRecorderPluginImpl(this._path) : super.create() {
+  OggOpusRecorderPluginImpl(
+    this._path, {
+    required this.enableTranscription,
+    this.transcriptionLocaleIdentifier,
+    required this.transcriptionAddsPunctuation,
+  }) : super.create() {
     _initChannelIfNeeded();
     scheduleMicrotask(() async {
       try {
-        _id = await _channel.invokeMethod('createRecorder', _path);
+        _id = await _channel.invokeMethod('createRecorder', {
+          'path': _path,
+          'enableTranscription': enableTranscription,
+          'transcriptionLocaleIdentifier': transcriptionLocaleIdentifier,
+          'transcriptionAddsPunctuation': transcriptionAddsPunctuation,
+        });
         _recorders[_id] = this;
       } catch (e) {
         debugPrint('create recorder failed. error: $e');
@@ -206,6 +268,9 @@ class OggOpusRecorderPluginImpl extends OggOpusRecorder {
   }
 
   final String _path;
+  final bool enableTranscription;
+  final String? transcriptionLocaleIdentifier;
+  final bool transcriptionAddsPunctuation;
   int _id = -1;
 
   double? _duration;
@@ -214,6 +279,8 @@ class OggOpusRecorderPluginImpl extends OggOpusRecorder {
   final _createCompleter = Completer<void>();
 
   final _stopCompleter = Completer<void>();
+  final _transcriptionController =
+      StreamController<OggOpusTranscription>.broadcast();
 
   @override
   Future<void> start() async {
@@ -237,6 +304,7 @@ class OggOpusRecorderPluginImpl extends OggOpusRecorder {
   @override
   void dispose() {
     _channel.invokeMethod("destroyRecorder", _id);
+    _transcriptionController.close();
   }
 
   @override
@@ -249,6 +317,10 @@ class OggOpusRecorderPluginImpl extends OggOpusRecorder {
     return _waveformData ?? [];
   }
 
+  @override
+  Stream<OggOpusTranscription> get transcriptions =>
+      _transcriptionController.stream;
+
   void onCanceled(int reason) {
     _stopCompleter.complete();
   }
@@ -257,5 +329,17 @@ class OggOpusRecorderPluginImpl extends OggOpusRecorder {
     _duration = duration / 1000;
     _waveformData = waveform;
     _stopCompleter.complete();
+  }
+
+  void onTranscription(OggOpusTranscription transcription) {
+    if (!_transcriptionController.isClosed) {
+      _transcriptionController.add(transcription);
+    }
+  }
+
+  void onTranscriptionError(String error) {
+    if (!_transcriptionController.isClosed) {
+      _transcriptionController.addError(Exception(error));
+    }
   }
 }

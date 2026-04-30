@@ -1,3 +1,11 @@
+## 0.8.0
+
+* [iOS/macOS] break change: raise the minimum supported versions to iOS 13.0 and macOS 10.15.
+* [iOS/macOS] share the native implementation through Flutter's Darwin plugin layout.
+* [iOS/macOS] add speech recognition APIs for Ogg Opus file transcription.
+* [iOS/macOS] add optional live transcription support while recording.
+* [iOS/macOS] update the example app and setup documentation for speech recognition permissions.
+
 ## 0.7.0
 
 * [iOS] support arm64 x86_64 simulator.

@@ -211,6 +211,9 @@ class _RecorderExampleState extends State<_RecorderExample> {
   late String _recordedPath;
 
   OggOpusRecorder? _recorder;
+  StreamSubscription<OggOpusTranscription>? _transcriptionSubscription;
+  String _transcriptionText = '';
+  bool _isTranscribingFile = false;
 
   @override
   void initState() {
@@ -218,8 +221,31 @@ class _RecorderExampleState extends State<_RecorderExample> {
     _recordedPath = p.join(widget.dir, 'test_recorded.ogg');
   }
 
+  Future<bool> _requestMicrophonePermission() async {
+    if (Platform.isAndroid || Platform.isIOS || Platform.isWindows) {
+      final status = await Permission.microphone.request();
+      return status.isGranted;
+    }
+    return true;
+  }
+
+  Future<bool> _canUseSpeechRecognition() async {
+    if (!(Platform.isIOS || Platform.isMacOS)) {
+      return false;
+    }
+    try {
+      final status = await OggOpusSpeechRecognizer.authorizationStatus();
+      return status == OggOpusSpeechAuthorizationStatus.authorized;
+    } catch (error) {
+      debugPrint('speech recognition authorization status failed: $error');
+      return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final systemLocale = WidgetsBinding.instance.platformDispatcher.locale;
+    final systemLocaleIdentifier = systemLocale.toLanguageTag();
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -227,8 +253,8 @@ class _RecorderExampleState extends State<_RecorderExample> {
         if (_recorder == null)
           IconButton(
             onPressed: () async {
-              final status = await Permission.microphone.request();
-              if (!status.isGranted) {
+              final isGranted = await _requestMicrophonePermission();
+              if (!isGranted) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('need microphone permission')),
@@ -236,6 +262,22 @@ class _RecorderExampleState extends State<_RecorderExample> {
                 }
                 return;
               }
+              try {
+                final instance = await AudioSession.instance;
+                await instance.configure(
+                  const AudioSessionConfiguration(
+                    avAudioSessionCategory:
+                        AVAudioSessionCategory.playAndRecord,
+                    avAudioSessionMode: AVAudioSessionMode.spokenAudio,
+                  ),
+                );
+                await instance.setActive(true);
+              } catch (error, stacktrace) {
+                debugPrint(
+                    'AudioSession activeRecord error: $error $stacktrace');
+              }
+
+              final enableTranscription = await _canUseSpeechRecognition();
 
               final file = File(_recordedPath);
               if (file.existsSync()) {
@@ -249,10 +291,23 @@ class _RecorderExampleState extends State<_RecorderExample> {
                 avAudioSessionMode: AVAudioSessionMode.spokenAudio,
               ));
               await session.setActive(true);
-              final recorder = OggOpusRecorder(_recordedPath);
+              final recorder = OggOpusRecorder(
+                _recordedPath,
+                enableTranscription: enableTranscription,
+                transcriptionLocaleIdentifier: systemLocaleIdentifier,
+              );
+              _transcriptionSubscription =
+                  recorder.transcriptions.listen((transcription) {
+                setState(() {
+                  _transcriptionText = transcription.text;
+                });
+              }, onError: (Object error) {
+                debugPrint('transcription error: $error');
+              });
               recorder.start();
               setState(() {
                 _recorder = recorder;
+                _transcriptionText = '';
               });
             },
             icon: const Icon(Icons.keyboard_voice_outlined),
@@ -269,6 +324,8 @@ class _RecorderExampleState extends State<_RecorderExample> {
               IconButton(
                 onPressed: () async {
                   await _recorder?.stop();
+                  await _transcriptionSubscription?.cancel();
+                  _transcriptionSubscription = null;
                   debugPrint('recording stopped');
                   debugPrint('duration: ${await _recorder?.duration()}');
                   debugPrint('waveform: ${await _recorder?.getWaveformData()}');
@@ -290,7 +347,51 @@ class _RecorderExampleState extends State<_RecorderExample> {
         const SizedBox(height: 8),
         if (_recorder == null && File(_recordedPath).existsSync())
           _OpusOggPlayerWidget(path: _recordedPath),
+        if (_recorder == null &&
+            File(_recordedPath).existsSync() &&
+            (Platform.isIOS || Platform.isMacOS))
+          IconButton(
+            onPressed: _isTranscribingFile
+                ? null
+                : () async {
+                    setState(() {
+                      _isTranscribingFile = true;
+                    });
+                    try {
+                      await OggOpusSpeechRecognizer.requestAuthorization();
+                      final transcription =
+                          await OggOpusSpeechRecognizer.transcribeFile(
+                        _recordedPath,
+                        localeIdentifier: systemLocaleIdentifier,
+                      );
+                      setState(() {
+                        _transcriptionText = transcription.text;
+                      });
+                    } finally {
+                      if (mounted) {
+                        setState(() {
+                          _isTranscribingFile = false;
+                        });
+                      }
+                    }
+                  },
+            icon: _isTranscribingFile
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator.adaptive(),
+                  )
+                : const Icon(Icons.text_fields),
+          ),
+        if (_transcriptionText.isNotEmpty) Text(_transcriptionText),
       ],
     );
+  }
+
+  @override
+  void dispose() {
+    _transcriptionSubscription?.cancel();
+    _recorder?.dispose();
+    super.dispose();
   }
 }

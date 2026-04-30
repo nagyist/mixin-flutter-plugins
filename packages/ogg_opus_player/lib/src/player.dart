@@ -6,6 +6,68 @@ import 'player_ffi_impl.dart';
 import 'player_plugin_impl.dart';
 import 'player_state.dart';
 
+class OggOpusTranscription {
+  const OggOpusTranscription({
+    required this.text,
+    required this.isFinal,
+    this.duration,
+  });
+
+  factory OggOpusTranscription.fromMap(Map<Object?, Object?> map) {
+    return OggOpusTranscription(
+      text: map['text'] as String? ?? '',
+      isFinal: map['isFinal'] as bool? ?? false,
+      duration: map['duration'] as double?,
+    );
+  }
+
+  final String text;
+  final bool isFinal;
+  final double? duration;
+}
+
+enum OggOpusSpeechAuthorizationStatus {
+  authorized,
+  denied,
+  restricted,
+  notDetermined,
+  unavailable,
+  unknown,
+}
+
+abstract final class OggOpusSpeechRecognizer {
+  static Future<OggOpusSpeechAuthorizationStatus> authorizationStatus() {
+    if (Platform.isIOS || Platform.isMacOS) {
+      return speechRecognitionAuthorizationStatus();
+    }
+    return Future.value(OggOpusSpeechAuthorizationStatus.unavailable);
+  }
+
+  static Future<void> requestAuthorization() {
+    if (Platform.isIOS || Platform.isMacOS) {
+      return requestSpeechRecognitionAuthorization();
+    }
+    throw UnsupportedError(
+        'Speech recognition is only supported on iOS and macOS');
+  }
+
+  static Future<OggOpusTranscription> transcribeFile(
+    String path, {
+    String? localeIdentifier,
+    bool addsPunctuation = true,
+  }) {
+    if (Platform.isIOS || Platform.isMacOS) {
+      return transcribeOggOpusFile(
+        path,
+        localeIdentifier: localeIdentifier,
+        addsPunctuation: addsPunctuation,
+      );
+    }
+    throw UnsupportedError(
+        'Speech recognition is only supported on iOS and macOS');
+  }
+}
+
 abstract class OggOpusPlayer {
   OggOpusPlayer.create();
 
@@ -37,11 +99,29 @@ abstract class OggOpusPlayer {
 abstract class OggOpusRecorder {
   OggOpusRecorder.create();
 
-  factory OggOpusRecorder(String path) {
+  factory OggOpusRecorder(
+    String path, {
+    bool enableTranscription = false,
+    String? transcriptionLocaleIdentifier,
+    bool transcriptionAddsPunctuation = true,
+  }) {
     if (Platform.isLinux || Platform.isWindows) {
+      if (enableTranscription) {
+        throw UnsupportedError(
+            'Speech recognition is only supported on iOS and macOS');
+      }
       return OggOpusRecorderFfiImpl(path);
     } else if (Platform.isIOS || Platform.isMacOS || Platform.isAndroid) {
-      return OggOpusRecorderPluginImpl(path);
+      if (enableTranscription && !(Platform.isIOS || Platform.isMacOS)) {
+        throw UnsupportedError(
+            'Speech recognition is only supported on iOS and macOS');
+      }
+      return OggOpusRecorderPluginImpl(
+        path,
+        enableTranscription: enableTranscription,
+        transcriptionLocaleIdentifier: transcriptionLocaleIdentifier,
+        transcriptionAddsPunctuation: transcriptionAddsPunctuation,
+      );
     }
     throw UnsupportedError('Platform not supported');
   }
@@ -59,4 +139,6 @@ abstract class OggOpusRecorder {
   /// get the recorded audio duration.
   /// must be called after [stop] is called.
   Future<double> duration();
+
+  Stream<OggOpusTranscription> get transcriptions;
 }
